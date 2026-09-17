@@ -1,4 +1,4 @@
-# HACK-A-THON GIT REPO
+# P7 Docker info
 
 The following guide describes how to set up the system and get it running on a Jetson. 
 
