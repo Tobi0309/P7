@@ -1,0 +1,43 @@
+services:
+  p7-drone-sit-awareness:
+    image: p7-drone-sit-awareness:latest
+    container_name: p7-drone-sit-awareness
+    network_mode: host
+    privileged: true
+    environment:
+      - DISPLAY=${DISPLAY}
+      - ROS_DOMAIN_ID=42
+      - QT_QPA_PLATFORM=xcb
+      - XAUTHORITY=${XAUTHORITY:-/root/.Xauthority}
+      - RMW_IMPLEMENTATION=rmw_zenoh_cpp
+    volumes:
+      - /dev/dri/:/dev/dri
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - ../:/home/P7_drone_sit_awareness_ws
+      - ${XAUTHORITY:-/root/.Xauthority}:${XAUTHORITY:-/root/.Xauthority}:ro
+      - /dev/dri:/dev/dri
+      - .:/home/P7_drone_sit_awareness_ws
+#    user: "1000:1000"
+
+    devices:
+      - /dev:/dev
+
+    stdin_open: true  
+    tty: true        
+    
+  zenoh-router:
+    image: eclipse/zenoh
+    container_name: zenoh-router
+    network_mode: host
+    ports:
+      - "7447:7447"
+      - "7448:7448"
+      - "8000:8000"
+    # Update the filename in the command
+    command: ["--config", "/etc/zenoh/zenoh-router.json"]
+    volumes:
+      # Update the filename in the volume mount
+      - ../zenoh_docker/zenoh-router.json:/etc/zenoh/zenoh-router.json
+    restart: unless-stopped
+    environment:
+      - RUST_LOG=debug
