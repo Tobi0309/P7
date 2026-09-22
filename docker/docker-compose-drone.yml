@@ -16,10 +16,8 @@ services:
     volumes:
       - /dev/dri/:/dev/dri
       - /tmp/.X11-unix:/tmp/.X11-unix
-      - ../:/home/P7_drone_sit_awareness_ws
+      - ../ros2_ws:/home/P7_drone_sit_awareness_ws
       - ${XAUTHORITY:-/root/.Xauthority}:${XAUTHORITY:-/root/.Xauthority}:ro
-      - /dev/dri:/dev/dri
-      - .:/home/P7_drone_sit_awareness_ws
 #    user: "1000:1000"
 
     devices:
