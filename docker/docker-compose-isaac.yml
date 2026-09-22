@@ -1,0 +1,26 @@
+services:
+  p7-drone-sit-awareness-isaac:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    image: p7-drone-sit-awareness:latest
+    container_name: p7-drone-sit-awareness
+    network_mode: host
+    privileged: true
+    environment:
+      - DISPLAY=${DISPLAY}
+      - ROS_DOMAIN_ID=42
+      - QT_QPA_PLATFORM=xcb
+      - XAUTHORITY=${XAUTHORITY:-/root/.Xauthority}
+    volumes:
+      - /dev/dri/:/dev/dri
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - ../ros2_ws:/home/P7_drone_sit_awareness_ws
+      - ${XAUTHORITY:-/root/.Xauthority}:${XAUTHORITY:-/root/.Xauthority}:ro
+#    user: "1000:1000"
+
+    devices:
+      - /dev:/dev
+
+    stdin_open: true  
+    tty: true        
