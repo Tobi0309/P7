@@ -1,5 +1,8 @@
 services:
   p7-drone-sit-awareness:
+    build: 
+      context: .
+      dockerfile: Dockerfile
     image: p7-drone-sit-awareness:latest
     container_name: p7-drone-sit-awareness
     network_mode: host

@@ -29,6 +29,7 @@ RUN apt-get update && apt-get install -y \
 	ros-jazzy-ros2-control \
 	ros-jazzy-controller-manager \
 	ros-jazzy-rviz2 \
+    ros-jazzy-pcl-ros \
 	python3-vcstool \
 	libeigen3-dev \
 	libopencv-dev \
@@ -48,7 +49,19 @@ RUN apt-get update && apt-get install -y \
 RUN apt-get update && apt-get install -y \
     python3-scipy \
     ros-jazzy-rmw-zenoh-cpp \
+    ros-jazzy-pcl-conversions \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Livox SDK
+WORKDIR /root
+RUN git clone https://github.com/Livox-SDK/Livox-SDK2.git && \
+    mkdir -p Livox-SDK2/build 
+    
+RUN cd Livox-SDK2/build && \
+    cmake .. && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig
 
 # RUN   sed -i "s|size: 0.173|size: 0.69|g" /opt/ros/jazzy/share/apriltag_ros/cfg/tags_36h11.yaml
 
