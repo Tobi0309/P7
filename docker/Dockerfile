@@ -41,9 +41,12 @@ RUN apt-get update && apt-get install -y \
 	iputils-ping \
 	python3-colcon-common-extensions \
 	x11-apps \	
-        ros-jazzy-realsense2-camera \
-        ros-jazzy-image-tools \
-        #ros-jazzy-apriltag-ros \
+    ros-jazzy-realsense2-camera \
+    ros-jazzy-image-tools \
+    #ros-jazzy-apriltag-ros \
+    ros-jazzy-image-transport \ 
+    ros-jazzy-compressed-image-transport \
+    ros-jazzy-compressed-depth-image-transport \
 	&& rm -rf /var/lib/apt/lists/*
 
 RUN apt-get update && apt-get install -y \
