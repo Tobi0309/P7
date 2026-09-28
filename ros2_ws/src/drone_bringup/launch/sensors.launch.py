@@ -1,3 +1,4 @@
+from ament_index_python import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -15,13 +16,23 @@ def generate_launch_description():
         )
     )
 
-    # lidar = IncludeLaunchDescription(
+    livox = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            [
+                get_package_share_directory('livox_ros_driver2'),
+                '/launch_ROS2/msg_MID360_launch.py'
+            ]
+        )
+    )
+
+    # IMU = IncludeLaunchDescription(
     #     PythonLaunchDescriptionSource(
-    #         os.path.join(launch_dir, 'lidar.launch.py')
+    #         os.path.join(launch_dir, 'imu.launch.py')
     #     )
     # )
 
     return LaunchDescription([
         realsense,
-        # lidar,
+        livox,
+        # IMU,
     ])

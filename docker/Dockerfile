@@ -30,6 +30,7 @@ RUN apt-get update && apt-get install -y \
 	ros-jazzy-controller-manager \
 	ros-jazzy-rviz2 \
     ros-jazzy-pcl-ros \
+    ros-jazzy-launch-ros \
 	python3-vcstool \
 	libeigen3-dev \
 	libopencv-dev \
@@ -37,6 +38,7 @@ RUN apt-get update && apt-get install -y \
 	libpcl-dev \
 	vim \
 	nano \
+    usbutils \
 	git \
 	iputils-ping \
 	python3-colcon-common-extensions \

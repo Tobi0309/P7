@@ -2,6 +2,8 @@
 
 set -e
 
+source /opt/ros/jazzy/setup.bash
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 SESSION_NAME="sensors"
@@ -27,8 +29,6 @@ sleep 2
 echo "Starting sensors..."
 
 screen -dmS "$SESSION_NAME" bash -c "
-    source /opt/ros/jazzy/setup.bash
-
     cd '$SCRIPT_DIR'
 
     echo 'Starting sensors.launch.py...'
