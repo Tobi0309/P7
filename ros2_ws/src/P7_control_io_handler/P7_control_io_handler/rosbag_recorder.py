@@ -60,13 +60,26 @@ class RosbagRecorder(Node):
         
         request = Record.Request()
         request.uri = f'rosbags/{name}/'
-        
-        self._record_client.call_async(request)
 
-        request = Resume.Request()
-        self._resume_client.call_async(request)
-        
+        record_future = self._record_client.call_async(request)
+        record_future.add_done_callback(
+            lambda future: self._resume_after_recording(future, request.uri))
+
         self.get_logger().info(f'Starting recording: {request.uri}')
+
+    def _resume_after_recording(self, future, uri):
+        try:
+            future.result()
+        except Exception as error:
+            self.get_logger().error(f'Failed to start recording: {error}')
+            return
+
+        if not self._resume_client.service_is_ready():
+            self.get_logger().warning('Resume service is not available')
+            return
+
+        self._resume_client.call_async(Resume.Request())
+        self.get_logger().info(f'Resuming recording: {uri}')
 
     def _stop_recording(self):
         if not self.record_status:
