@@ -15,7 +15,12 @@ def generate_launch_description():
             name='rosbag2_recorder',
             output='screen',
             arguments=['--start-paused', 
-                       '-a'],
+                       '/camera/camera/color/camera_info',
+                       '/camera/camera/color/image_raw',
+                       '/camera/camera/color/metadata',
+                       
+                       '/fmu/out/rc_channels',
+                        ],
  
             parameters=[{
                 'storage.uri': output_dir,
