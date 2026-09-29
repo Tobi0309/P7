@@ -18,7 +18,6 @@ def generate_launch_description():
                        '/camera/camera/color/camera_info',
                        '/camera/camera/color/image_raw',
                        '/camera/camera/color/metadata',
-                       
                        '/fmu/out/rc_channels',
                         ],
  
