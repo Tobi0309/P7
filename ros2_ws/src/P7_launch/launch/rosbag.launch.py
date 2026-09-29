@@ -1,8 +1,12 @@
+from datetime import datetime
+
 from launch import LaunchDescription
 from launch_ros.actions import Node
 
 def generate_launch_description():
-    output_dir = 'rosbags/start'
+    name = datetime.now().strftime('start_dummy_bag_%Y%m%d_%H%M%S')
+    
+    output_dir = f'rosbags/{name}'
 
     return LaunchDescription([
         Node(

@@ -22,7 +22,7 @@ class RosbagRecorder(Node):
         
         self.create_subscription(
             RcChannels,
-            '/imf/out/rc_channels',
+            '/fmu/out/rc_channels',
             self._rc_channels_callback,
             10,
         )
