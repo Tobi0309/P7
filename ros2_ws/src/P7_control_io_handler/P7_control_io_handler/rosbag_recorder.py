@@ -3,7 +3,7 @@ from datetime import datetime
 import rclpy
 from px4_msgs.msg import RcChannels
 from rclpy.node import Node
-from rosbag2_interfaces.srv import Record, Stop
+from rosbag2_interfaces.srv import Record, Resume, Stop
 
 
 class RosbagRecorder(Node):
@@ -17,6 +17,8 @@ class RosbagRecorder(Node):
         
         self._record_client = self.create_client(
             Record, '/rosbag2_recorder/record')
+        self._resume_client = self.create_client(
+            Resume, '/rosbag2_recorder/resume')
         self._stop_client = self.create_client(
             Stop, '/rosbag2_recorder/stop')
         
@@ -60,6 +62,10 @@ class RosbagRecorder(Node):
         request.uri = f'rosbags/{name}/'
         
         self._record_client.call_async(request)
+
+        request = Resume.Request()
+        self._resume_client.call_async(request)
+        
         self.get_logger().info(f'Starting recording: {request.uri}')
 
     def _stop_recording(self):
