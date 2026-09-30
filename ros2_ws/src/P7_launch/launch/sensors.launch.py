@@ -94,23 +94,23 @@ def generate_launch_description():
     #   /UAV/rgbd_camera/color/image_raw/compressed
     # -------------------------------------------------------------
 
-    # color_compressor = Node(
-    #     package='image_transport',
-    #     executable='republish',
-    #     name='color_compressor',
-    #     namespace='UAV/rgbd_camera/color',
-    #     output='screen',
+    color_compressor = Node(
+        package='image_transport',
+        executable='republish',
+        name='color_compressor',
+        namespace='UAV/rgbd_camera/color',
+        output='screen',
 
-    #     parameters=[{
-    #         'in_transport': 'raw',
-    #         'out_transport': 'compressed',
-    #     }],
+        parameters=[{
+            'in_transport': 'raw',
+            'out_transport': 'compressed',
+        }],
 
-    #     remappings=[
-    #         ('in', 'image_raw'),
-    #         ('out', 'image_raw'),
-    #     ],
-    # )
+        remappings=[
+            ('in', 'image_raw'),
+            ('out', 'image_raw'),
+        ],
+    )
 
     # -------------------------------------------------------------
     # Aligned depth: raw -> compressedDepth
@@ -122,27 +122,27 @@ def generate_launch_description():
     #   /UAV/rgbd_camera/aligned_depth_to_color/image_raw/compressedDepth
     # -------------------------------------------------------------
 
-    # depth_compressor = Node(
-    #     package='image_transport',
-    #     executable='republish',
-    #     name='depth_compressor',
-    #     namespace='UAV/rgbd_camera/aligned_depth_to_color',
-    #     output='screen',
+    depth_compressor = Node(
+        package='image_transport',
+        executable='republish',
+        name='depth_compressor',
+        namespace='UAV/rgbd_camera/aligned_depth_to_color',
+        output='screen',
 
-    #     parameters=[{
-    #         'in_transport': 'raw',
-    #         'out_transport': 'compressedDepth',
-    #     }],
+        parameters=[{
+            'in_transport': 'raw',
+            'out_transport': 'compressedDepth',
+        }],
 
-    #     remappings=[
-    #         ('in', 'image_raw'),
-    #         ('out', 'image_raw'),
-    #     ],
-    # )
+        remappings=[
+            ('in', 'image_raw'),
+            ('out', 'image_raw'),
+        ],
+    )
 
     return LaunchDescription([
         camera,
-        # color_compressor,
-        # depth_compressor,
+        color_compressor,
+        depth_compressor,
         livox,
     ])
