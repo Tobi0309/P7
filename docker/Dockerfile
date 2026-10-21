@@ -55,6 +55,10 @@ RUN apt-get update && apt-get install -y \
     python3-scipy \
     ros-jazzy-rmw-zenoh-cpp \
     ros-jazzy-pcl-conversions \
+    ros-jazzy-rosbag2 \
+    ros-jazzy-image-transport \ 
+    ros-jazzy-compressed-image-transport \
+    ros-jazzy-compressed-depth-image-transport \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Livox SDK
