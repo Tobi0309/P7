@@ -39,6 +39,24 @@ def generate_launch_description():
         output='screen',
     )
 
+    lidar_receiver_horizontal_tf = Node(
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        name='lidar_receiver_horizontal_static_transform',
+        arguments=[
+            '--x', '0.0708171',
+            '--y', '0.0002420',
+            '--z', '-0.0988043',
+            '--qx', '0.707106',
+            '--qy', '0.707106',
+            '--qz', '0.0',
+            '--qw', '0.0',
+            '--frame-id', 'base_link',
+            '--child-frame-id', 'lidar_link',
+        ],
+        output='screen',
+    )
+
     lidar_imu_tf = Node(
         package='tf2_ros',
         executable='static_transform_publisher',
@@ -59,6 +77,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         camera_tf,
-        lidar_receiver_tf,
+        # lidar_receiver_tf,
+        lidar_receiver_horizontal_tf,
         # lidar_imu_tf,
     ])
