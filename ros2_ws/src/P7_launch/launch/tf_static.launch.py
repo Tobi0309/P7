@@ -44,9 +44,9 @@ def generate_launch_description():
         executable='static_transform_publisher',
         name='lidar_receiver_horizontal_static_transform',
         arguments=[
-            '--x', '0.0708171',
+            '--x', '0.052831',
             '--y', '0.0002420',
-            '--z', '-0.0988043',
+            '--z', '-0.102382',
             '--qx', '0.707106',
             '--qy', '0.707106',
             '--qz', '0.0',
