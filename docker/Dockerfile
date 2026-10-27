@@ -61,6 +61,21 @@ RUN apt-get update && apt-get install -y \
     ros-jazzy-compressed-depth-image-transport \
     && rm -rf /var/lib/apt/lists/*
 
+# ROS <-> vision glue + Python tooling
+RUN apt-get update && apt-get install -y \
+    python3-pip \
+    python3-numpy \
+    ros-jazzy-cv-bridge \
+    ros-jazzy-vision-msgs \
+    libgl1 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Download YOLO
+RUN pip3 install --no-cache-dir --break-system-packages \
+    "numpy<2" \
+    ultralytics-opencv-headless
+
 # Install Livox SDK
 WORKDIR /root
 RUN git clone https://github.com/Livox-SDK/Livox-SDK2.git && \
