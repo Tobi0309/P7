@@ -1,7 +1,7 @@
 # P7
 Drone navigation in a 3D environment
 
-# How to connect to the Jetson
+## How to connect to the Jetson
 1. Connect to the DroneNet Wi-Fi
 2. Establish an SSH connection with:
 
@@ -9,7 +9,9 @@ Drone navigation in a 3D environment
    ssh jetson@jetson.local
    ```
 
-# Password and IP
+3. Enter the Jetson password
+
+## Password and IP
 
 | Unit    | Username    | Password       | IP              | Hostname     |
 |---------|-------------|----------------|-----------------|--------------|
