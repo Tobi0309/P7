@@ -61,6 +61,12 @@ RUN apt-get update && apt-get install -y \
     ros-jazzy-compressed-depth-image-transport \
     && rm -rf /var/lib/apt/lists/*
 
+RUN apt-get update && apt-get install -y \
+    ros-jazzy-octomap-server \
+    ros-jazzy-octomap-rviz-plugins \
+    ros-jazzy-joy \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install Livox SDK
 WORKDIR /root
 RUN git clone https://github.com/Livox-SDK/Livox-SDK2.git && \
