@@ -22,12 +22,20 @@ def generate_launch_description():
 
     static_transform_world_sensor = Node(
             package='tf2_ros',
+            executable='s   tatic_transform_publisher',
+            name='static_transform_publisher',
+            output='screen',
+            arguments=['0', '0', '0', '0', '3.141592653589', '0', 'world', 'camera_init']
+        )
+
+
+    static_transform_world_sensor = Node(
+            package='tf2_ros',
             executable='static_transform_publisher',
             name='static_transform_publisher',
             output='screen',
             arguments=['0', '0', '0', '0', '3.141592653589', '0', 'world', 'camera_init']
         )
-    
 
     octomap_node = Node(
             package='octomap_server',

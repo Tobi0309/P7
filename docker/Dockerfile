@@ -59,6 +59,7 @@ RUN apt-get update && apt-get install -y \
 RUN apt-get update && apt-get install -y \
     ros-jazzy-octomap-server \
     ros-jazzy-octomap-rviz-plugins \
+    ros-jazzy-joy \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Livox SDK
