@@ -3,7 +3,7 @@ Drone navigation in a 3d environment
 
 # How to connect to the Jetson
 1. Connect to the DroneNet wi-fi
-2. Establish a ssh connection with the command '''ssh jetson@jetson.local'''
+2. Establish a ssh connection with the command 'ssh jetson@jetson.local'
 
 # Password and IP
 
