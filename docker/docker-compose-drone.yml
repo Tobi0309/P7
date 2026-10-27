@@ -1,3 +1,4 @@
+name: p7-drone
 services:
   p7-drone-sit-awareness:
     build: 
@@ -18,13 +19,19 @@ services:
       - /tmp/.X11-unix:/tmp/.X11-unix
       - ../ros2_ws:/home/P7_drone_sit_awareness_ws
       - ${XAUTHORITY:-/root/.Xauthority}:${XAUTHORITY:-/root/.Xauthority}:ro
+    command: >
+      bash -c "
+      source /opt/ros/jazzy/setup.bash &&
+      source /home/P7_drone_sit_awareness_ws/install/setup.bash &&
+      ros2 launch realsense2_camera rs_launch.py
+      "
 #    user: "1000:1000"
 
     devices:
       - /dev:/dev
 
-    stdin_open: true  
-    tty: true        
+    stdin_open: true
+    tty: true 
     
   zenoh-router:
     image: eclipse/zenoh
