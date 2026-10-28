@@ -51,6 +51,7 @@ class YOLO_Human_Detection(Node):
 
     def _working_callback(self, msg: CompressedImage):
         frame = self.bridge.compressed_imgmsg_to_cv2(msg, desired_encoding='bgr8')
+        frame = np.rot90(frame, 2).copy()
         result = self.model.predict(
             frame, conf=self.conf, imgsz=self.imgsz,
             device=self.device, verbose=False)[0]   
