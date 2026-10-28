@@ -7,6 +7,7 @@ from sensor_msgs.msg import CompressedImage, Image
 import numpy as np
 from rclpy.qos import qos_profile_sensor_data
 from ament_index_python.packages import get_package_share_directory
+from vision_msgs.msg import Detection2DArray, Detection2D, ObjectHypothesisWithPose 
 
 
 
@@ -20,6 +21,7 @@ class YOLO_Human_Detection(Node):
         self.declare_parameter('model_path', forestpersons_model)
         self.declare_parameter('input_topic', '/UAV/rgbd_camera/color/image_raw/compressed')
         self.declare_parameter('output_topic', '/yolo/image_annotated')
+        self.declare_parameter('detections_topic', '/yolo/bounding_boxes')
         self.declare_parameter('conf', 0.25) #Confidence threshold
         self.declare_parameter('imgsz', 640) #Image size for inference
         self.declare_parameter('device', '0')   # '0' for GPU, 'cpu' for CPU #WE USE GPU
@@ -44,6 +46,10 @@ class YOLO_Human_Detection(Node):
         #Create publisher for annotated images
         self.pub = self.create_publisher(
             Image, self.get_parameter('output_topic').value, 10)
+        
+        #Create publisher for bounding boxes
+        self.det_pub = self.create_publisher(
+            Detection2DArray, self.get_parameter('detections_topic').value, 10)
 
 
 
@@ -64,9 +70,39 @@ class YOLO_Human_Detection(Node):
         #Publish the annotated image message
         self.pub.publish(out)
 
+        # Create bounding box message
+        det_array = Detection2DArray()
+        det_array.header = msg.header
+        for box in result.boxes:
+            # xywh = center x, center y, width, height (in pixels)
+            cx, cy, w, h = box.xywh[0].tolist()
+            conf = float(box.conf[0])
+            cls_id = int(box.cls[0])
+
+            det = Detection2D()
+            det.header = msg.header
+            det.bbox.center.position.x = cx
+            det.bbox.center.position.y = cy
+            det.bbox.size_x = w
+            det.bbox.size_y = h
+
+            hyp = ObjectHypothesisWithPose()
+            hyp.hypothesis.class_id = self.model.names[cls_id]
+            hyp.hypothesis.score = conf
+            det.results.append(hyp)
+
+            det_array.detections.append(det)
+
+        #Publish the bounding box message
+        self.det_pub.publish(det_array)
+
+
+
         #Log the number of detections
         n = len(result.boxes)
         self.get_logger().info(f'{n} detection(s)', throttle_duration_sec=2.0)
+
+
 
     
 
