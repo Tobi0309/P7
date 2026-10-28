@@ -71,16 +71,21 @@ RUN apt-get update && apt-get install -y \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Download YOLO
-# Ultralytics without its dependencies (so it doesn't install CPU torch)
-RUN pip3 install --no-cache-dir --break-system-packages "numpy<2" \
-    ultralytics-opencv-headless --no-deps && \
-    pip3 install --no-cache-dir --break-system-packages \
-    matplotlib pyyaml requests scipy tqdm psutil polars ultralytics-thop pillow
-# CUDA-enabled PyTorch built for Jetson (JetPack 6)
+# Download YOLO and CUDA correctly
+# Remove any CPU-only torch that may already be present
+RUN pip3 uninstall -y --break-system-packages torch torchvision || true
+# CUDA 13 PyTorch wheels (work on Orin / JetPack 7.2, Python 3.12)
 RUN pip3 install --no-cache-dir --break-system-packages \
-    --index-url https://pypi.jetson-ai-lab.io/jp6/cu126 \
-    torch torchvision
+    torch torchvision "numpy<2" \
+    --index-url https://download.pytorch.org/whl/cu130 \
+    --extra-index-url https://pypi.org/simple
+# Libraries that JetPack does not ship but torch needs
+RUN pip3 install --no-cache-dir --break-system-packages \
+    nvidia-cudnn-cu13 nvidia-nccl-cu13 \
+    nvidia-cusparselt-cu13 nvidia-nvshmem-cu13
+# Ultralytics LAST so it keeps the CUDA torch
+RUN pip3 install --no-cache-dir --break-system-packages \
+    ultralytics-opencv-headless "numpy<2"
 
 # Install Livox SDK
 WORKDIR /root
