@@ -46,7 +46,6 @@ class PointCloudFOVFilter(Node):
         )
 
         coordinates_formatted = np.array(coordinates.tolist())
-
         
         transformed_coordinates = (self.camera_intrinsic @ self.camera_extrinsic @ np.hstack((coordinates_formatted, np.ones((coordinates_formatted.shape[0], 1)))).T).T
 
@@ -79,12 +78,17 @@ class PointCloudFOVFilter(Node):
         self.height = camera_info_msg.height
 
 
-def main():
-    rclpy.init()
-    node = PointCloudFOVFilter()
-    rclpy.spin(node)
-    node.destroy_node()
-    rclpy.shutdown()
 
-if __name__ == '__main__':
-    main()
+def main(args=None):
+	rclpy.init(args=args)
+	node = PointCloudFOVFilter()
+
+	try:
+		rclpy.spin(node)
+	finally:
+		node.destroy_node()
+		rclpy.shutdown()
+
+
+if __name__ == "__main__":
+	main()
