@@ -72,9 +72,15 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Download YOLO
+# Ultralytics without its dependencies (so it doesn't install CPU torch)
+RUN pip3 install --no-cache-dir --break-system-packages "numpy<2" \
+    ultralytics-opencv-headless --no-deps && \
+    pip3 install --no-cache-dir --break-system-packages \
+    matplotlib pyyaml requests scipy tqdm psutil polars ultralytics-thop pillow
+# CUDA-enabled PyTorch built for Jetson (JetPack 6)
 RUN pip3 install --no-cache-dir --break-system-packages \
-    "numpy<2" \
-    ultralytics-opencv-headless
+    --index-url https://pypi.jetson-ai-lab.io/jp6/cu126 \
+    torch torchvision
 
 # Install Livox SDK
 WORKDIR /root
