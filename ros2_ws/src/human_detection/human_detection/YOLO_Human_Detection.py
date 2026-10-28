@@ -18,7 +18,7 @@ class YOLO_Human_Detection(Node):
             get_package_share_directory('human_detection'), 'pre_trained_yolo_model', 'best.pt')
 
         self.declare_parameter('model_path', forestpersons_model)
-        self.declare_parameter('input_topic', '/camera/camera/color/image_raw/compressed')
+        self.declare_parameter('input_topic', '/UAV/rgbd_camera/color/image_raw/compressed')
         self.declare_parameter('output_topic', '/yolo/image_annotated')
         self.declare_parameter('conf', 0.25) #Confidence threshold
         self.declare_parameter('imgsz', 640) #Image size for inference
