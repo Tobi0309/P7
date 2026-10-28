@@ -24,7 +24,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'pointcloud_fov_filter = P7_mapping.pointcloud_fov_filter:main'
+            'pointcloud_fov_filter = P7_mapping.pointcloud_fov_filter:main',
+            'local_obstacle_mapper = P7_mapping.local_obstacle_mapper:main'
         ],
     },
 )

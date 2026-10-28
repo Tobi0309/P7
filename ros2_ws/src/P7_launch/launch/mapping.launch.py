@@ -22,19 +22,18 @@ def generate_launch_description():
 
     static_transform_world_sensor = Node(
             package='tf2_ros',
-            executable='s   tatic_transform_publisher',
+            executable='static_transform_publisher',
             name='static_transform_publisher',
             output='screen',
             arguments=['0', '0', '0', '0', '3.141592653589', '0', 'world', 'camera_init']
         )
 
-
-    static_transform_world_sensor = Node(
+    static_transform_sensor_drone = Node(
             package='tf2_ros',
             executable='static_transform_publisher',
             name='static_transform_publisher',
             output='screen',
-            arguments=['0', '0', '0', '0', '3.141592653589', '0', 'world', 'camera_init']
+            arguments=['0', '0', '0', '0', '3.141592653589', '0', 'body', 'drone']
         )
 
     octomap_node = Node(
@@ -100,6 +99,7 @@ def generate_launch_description():
     return LaunchDescription([
         fastlio,
         static_transform_world_sensor,
+        static_transform_sensor_drone,
         octomap_node,
         octomap_node_fov_filtered,
     ])
