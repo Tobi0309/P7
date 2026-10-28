@@ -22,8 +22,7 @@ services:
     command: >
       bash -c "
       source /opt/ros/jazzy/setup.bash &&
-      source /home/P7_drone_sit_awareness_ws/install/setup.bash &&
-      ros2 launch realsense2_camera rs_launch.py
+      source /home/P7_drone_sit_awareness_ws/install/setup.bash 
       "
 #    user: "1000:1000"
 
