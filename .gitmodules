@@ -12,3 +12,8 @@
 	path = ros2_ws/src/px4_msgs
 	url = https://github.com/PX4/px4_msgs.git
 	branch = main
+
+[submodule "ros2_ws/src/Dsp"]
+    path = ros2_ws/src/Dsp
+    url = https://github.com/LTU-RAI/Dsp.git
+    branch = ros2
