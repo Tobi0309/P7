@@ -31,6 +31,8 @@ RUN apt-get update && apt-get install -y \
 	ros-jazzy-rviz2 \
     ros-jazzy-pcl-ros \
     ros-jazzy-launch-ros \
+    ros-jazzy-octomap-msgs \
+    liboctomap-dev \
 	python3-vcstool \
 	libeigen3-dev \
 	libopencv-dev \
@@ -71,6 +73,25 @@ RUN cd Livox-SDK2/build && \
     make -j$(nproc) && \
     make install && \
     ldconfig
+
+# Install DSL dependency required by DSP (D*+ planner)
+WORKDIR /root
+
+RUN git clone https://github.com/jhu-asco/dsl.git && \
+    cd dsl && \
+    git checkout 61cf588668309e87de209cd95f03a0f792a16c33 && \
+    sed -i \
+        -e 's/assert(height > 0);/assert(height != nullptr);/' \
+        -e 's/assert(width > 0);/assert(width != nullptr);/' \
+        lib/utils.cc && \
+    mkdir -p build && \
+    cd build && \
+    cmake .. && \
+    make -j2 && \
+    make install && \
+    ldconfig && \
+    cd / && \
+    rm -rf /root/dsl
 
 # RUN   sed -i "s|size: 0.173|size: 0.69|g" /opt/ros/jazzy/share/apriltag_ros/cfg/tags_36h11.yaml
 
