@@ -10,6 +10,16 @@ from ament_index_python.packages import get_package_share_directory
 import os
 
 def generate_launch_description():
+    robot_description = IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                os.path.join(
+                    get_package_share_directory('P7_launch'),
+                    'launch',
+                    'robot_description.launch.py'
+                )
+            )
+        )
+
     fastlio = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(
@@ -20,15 +30,6 @@ def generate_launch_description():
         ),
         launch_arguments={'rviz': 'false'}.items()
     )
-    robot_description = IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(
-                os.path.join(
-                    get_package_share_directory('P7_launch'),
-                    'launch',
-                    'robot_description.launch.py'
-                )
-            )
-        )
 
     octomap_node = Node(
             package='octomap_server',
@@ -91,11 +92,6 @@ def generate_launch_description():
 
 
     return LaunchDescription([
-        DeclareLaunchArgument(
-            'rviz',
-            default_value='true',
-            description='Start RViz with Fast-LIO'
-        ),
         fastlio,
         robot_description,
         octomap_node,
