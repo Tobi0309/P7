@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+<robot name="drone">
+
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="package://P7_launch/meshes/holybro_x500v2_drone_upd.stl" scale="1 1 1"/>
+      </geometry>
+      <material name="drone_blue">
+        <color r="0.1" g="0.3" b="1.0" a="1.0"/>
+    </material>
+    </visual>
+  </link>
+
+  <link name="body"/>
+
+  <joint name="lidar_joint" type="fixed">
+    <parent link="body"/>
+    <child link="base_link"/>
+    <origin xyz="0.0 -0.04534 -0.06133" rpy="3.141592653589 -0.392699082 1.57079633"/>
+  </joint>
+
+
+  <link name="camera_link"/>
+
+  <joint name="camera_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="camera_link"/>
+    <origin xyz="0.12821 0.0 0.01501" rpy="0 0 0"/>
+  </joint>
+
+  <!-- IMU frame (Udkommenteret korrekt uden indlejring)
+  <link name="imu_link"/>
+
+  <joint name="imu_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="imu_link"/>
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+  </joint> 
+  -->
+
+</robot>

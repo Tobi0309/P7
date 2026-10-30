@@ -1,15 +1,15 @@
 from datetime import datetime
 
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 from ament_index_python.packages import get_package_share_directory
 import os
 
 def generate_launch_description():
-
     fastlio = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(
@@ -17,23 +17,17 @@ def generate_launch_description():
                 'launch',
                 'mapping.launch.py'
             )
-        )
+        ),
+        launch_arguments={'rviz': 'false'}.items()
     )
-
-    static_transform_world_sensor = Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='static_transform_publisher',
-            output='screen',
-            arguments=['0', '0', '0', '0', '3.141592653589', '0', 'world', 'camera_init']
-        )
-
-    static_transform_sensor_drone = Node(
-            package='tf2_ros',
-            executable='static_transform_publisher',
-            name='static_transform_publisher',
-            output='screen',
-            arguments=['0', '0', '0', '0', '3.141592653589', '0', 'body', 'drone']
+    robot_description = IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                os.path.join(
+                    get_package_share_directory('P7_launch'),
+                    'launch',
+                    'robot_description.launch.py'
+                )
+            )
         )
 
     octomap_node = Node(
@@ -97,9 +91,13 @@ def generate_launch_description():
 
 
     return LaunchDescription([
+        DeclareLaunchArgument(
+            'rviz',
+            default_value='true',
+            description='Start RViz with Fast-LIO'
+        ),
         fastlio,
-        static_transform_world_sensor,
-        static_transform_sensor_drone,
+        robot_description,
         octomap_node,
         octomap_node_fov_filtered,
     ])
