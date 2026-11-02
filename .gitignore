@@ -56,3 +56,7 @@ ros2_ws/install/
 ros2_ws/log/
 ros2_ws/rosbags/
 .vscode/settings.json
+
+*.mcap
+
+*.yaml

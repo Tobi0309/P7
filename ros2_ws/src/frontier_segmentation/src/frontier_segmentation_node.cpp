@@ -233,7 +233,7 @@ private:
     if (msg->header.frame_id != world_frame_)
     {
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
-                           "OctoMap frame '%s' does not match configured world frame '%s'; skipping map",
+                           "OctoMap frame '%s' does not match configured world frame '%s'. Skipping map",
                            msg->header.frame_id.c_str(), world_frame_.c_str());
       return;
     }
@@ -248,7 +248,7 @@ private:
     catch (const tf2::TransformException &e)
     {
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
-                           "Cannot transform robot frame '%s' into world frame '%s'; skipping map: %s",
+                           "Cannot transform robot frame '%s' into world frame '%s'. Skipping map: %s",
                            robot_frame_.c_str(), world_frame_.c_str(), e.what());
       return;
     }

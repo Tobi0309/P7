@@ -3,7 +3,7 @@ frontier_segmentation:
     octomap_topic: /octomap_binary # or /octomap_full
     sensor_model: livox_mid360       # or: camera
     sensor_frame: livox_frame       # change to your actual LiDAR optical/sensor frame
-    world_frame: camera_init         # FAST-LIO world/parent frame
+    world_frame: map #camera_init         # FAST-LIO world/parent frame
     robot_frame: body                # FAST-LIO robot/child frame
     occupied_threshold: 0.5
     min_frontier_voxels: 8
