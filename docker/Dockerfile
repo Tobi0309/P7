@@ -31,6 +31,7 @@ RUN apt-get update && apt-get install -y \
 	ros-jazzy-rviz2 \
     ros-jazzy-pcl-ros \
     ros-jazzy-launch-ros \
+    ros-jazzy-ros2launch \
 	python3-vcstool \
 	libeigen3-dev \
 	libopencv-dev \
@@ -66,6 +67,13 @@ RUN apt-get update && apt-get install -y \
     ros-jazzy-octomap-rviz-plugins \
     ros-jazzy-joy \
     && rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && apt-get install -y python3-pip && \
+    pip3 install --break-system-packages ros2top \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && apt-get install -y \
+    nlohmann-json3-dev
 
 # Install Livox SDK
 WORKDIR /root

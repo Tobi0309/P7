@@ -1,0 +1,10 @@
+uint32 id
+geometry_msgs/Point centroid
+geometry_msgs/Point min_bound
+geometry_msgs/Point max_bound
+geometry_msgs/Point[] voxels
+float32 surface_area_proxy
+float32 width
+float32 height
+float32 elongation_ratio
+float32 convexity_ratio
