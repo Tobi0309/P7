@@ -1,0 +1,35 @@
+[0.782s] Invoking command in '/home/rasmus/AAU/7th_semester/P7/build/P7_launch': DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/rasmus/AAU/7th_semester/P7/build/P7_launch/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/rasmus/AAU/7th_semester/P7/install/P7_launch/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/rasmus/AAU/7th_semester/P7/build/P7_launch/build --no-deps symlink_data
+[0.986s] running develop
+[1.108s] running egg_info
+[1.108s] creating P7_launch.egg-info
+[1.128s] writing P7_launch.egg-info/PKG-INFO
+[1.128s] writing dependency_links to P7_launch.egg-info/dependency_links.txt
+[1.128s] writing requirements to P7_launch.egg-info/requires.txt
+[1.128s] writing top-level names to P7_launch.egg-info/top_level.txt
+[1.128s] writing manifest file 'P7_launch.egg-info/SOURCES.txt'
+[1.162s] reading manifest file 'P7_launch.egg-info/SOURCES.txt'
+[1.163s] writing manifest file 'P7_launch.egg-info/SOURCES.txt'
+[1.179s] running build_ext
+[1.179s] Creating /home/rasmus/AAU/7th_semester/P7/install/P7_launch/lib/python3.12/site-packages/P7-launch.egg-link (link to .)
+[1.179s] 
+[1.179s] Installed /home/rasmus/AAU/7th_semester/P7/build/P7_launch
+[1.179s] running symlink_data
+[1.179s] creating /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/ament_index
+[1.179s] creating /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/ament_index/resource_index
+[1.179s] creating /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/ament_index/resource_index/packages
+[1.179s] symbolically linking /home/rasmus/AAU/7th_semester/P7/build/P7_launch/resource/P7_launch -> /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/ament_index/resource_index/packages
+[1.180s] symbolically linking /home/rasmus/AAU/7th_semester/P7/build/P7_launch/package.xml -> /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/P7_launch
+[1.183s] creating /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/P7_launch/launch
+[1.183s] symbolically linking /home/rasmus/AAU/7th_semester/P7/build/P7_launch/launch/rviz.launch.py -> /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/P7_launch/launch
+[1.183s] symbolically linking /home/rasmus/AAU/7th_semester/P7/build/P7_launch/launch/realsense.launch.py -> /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/P7_launch/launch
+[1.183s] symbolically linking /home/rasmus/AAU/7th_semester/P7/build/P7_launch/launch/complete.launch.py -> /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/P7_launch/launch
+[1.183s] symbolically linking /home/rasmus/AAU/7th_semester/P7/build/P7_launch/launch/mapping.launch.py -> /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/P7_launch/launch
+[1.183s] symbolically linking /home/rasmus/AAU/7th_semester/P7/build/P7_launch/launch/rosbag.launch.py -> /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/P7_launch/launch
+[1.183s] symbolically linking /home/rasmus/AAU/7th_semester/P7/build/P7_launch/launch/tf_static.launch.py -> /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/P7_launch/launch
+[1.183s] creating /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/P7_launch/urdf
+[1.184s] symbolically linking /home/rasmus/AAU/7th_semester/P7/build/P7_launch/urdf/holybro_x500v2_drone.urdf -> /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/P7_launch/urdf
+[1.184s] creating /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/P7_launch/meshes
+[1.184s] symbolically linking /home/rasmus/AAU/7th_semester/P7/build/P7_launch/meshes/holybro_x500v2_drone.stl -> /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/P7_launch/meshes
+[1.184s] creating /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/P7_launch/rviz
+[1.184s] symbolically linking /home/rasmus/AAU/7th_semester/P7/build/P7_launch/rviz/drone.rviz -> /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/P7_launch/rviz
+[1.211s] Invoked command in '/home/rasmus/AAU/7th_semester/P7/build/P7_launch' returned '0': DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/rasmus/AAU/7th_semester/P7/build/P7_launch/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/rasmus/AAU/7th_semester/P7/install/P7_launch/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py develop --editable --build-directory /home/rasmus/AAU/7th_semester/P7/build/P7_launch/build --no-deps symlink_data

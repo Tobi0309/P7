@@ -1,0 +1,33 @@
+running develop
+running egg_info
+creating P7_launch.egg-info
+writing P7_launch.egg-info/PKG-INFO
+writing dependency_links to P7_launch.egg-info/dependency_links.txt
+writing requirements to P7_launch.egg-info/requires.txt
+writing top-level names to P7_launch.egg-info/top_level.txt
+writing manifest file 'P7_launch.egg-info/SOURCES.txt'
+reading manifest file 'P7_launch.egg-info/SOURCES.txt'
+writing manifest file 'P7_launch.egg-info/SOURCES.txt'
+running build_ext
+Creating /home/rasmus/AAU/7th_semester/P7/install/P7_launch/lib/python3.12/site-packages/P7-launch.egg-link (link to .)
+
+Installed /home/rasmus/AAU/7th_semester/P7/build/P7_launch
+running symlink_data
+creating /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/ament_index
+creating /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/ament_index/resource_index
+creating /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/ament_index/resource_index/packages
+symbolically linking /home/rasmus/AAU/7th_semester/P7/build/P7_launch/resource/P7_launch -> /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/ament_index/resource_index/packages
+symbolically linking /home/rasmus/AAU/7th_semester/P7/build/P7_launch/package.xml -> /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/P7_launch
+creating /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/P7_launch/launch
+symbolically linking /home/rasmus/AAU/7th_semester/P7/build/P7_launch/launch/rviz.launch.py -> /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/P7_launch/launch
+symbolically linking /home/rasmus/AAU/7th_semester/P7/build/P7_launch/launch/realsense.launch.py -> /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/P7_launch/launch
+symbolically linking /home/rasmus/AAU/7th_semester/P7/build/P7_launch/launch/complete.launch.py -> /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/P7_launch/launch
+symbolically linking /home/rasmus/AAU/7th_semester/P7/build/P7_launch/launch/mapping.launch.py -> /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/P7_launch/launch
+symbolically linking /home/rasmus/AAU/7th_semester/P7/build/P7_launch/launch/rosbag.launch.py -> /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/P7_launch/launch
+symbolically linking /home/rasmus/AAU/7th_semester/P7/build/P7_launch/launch/tf_static.launch.py -> /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/P7_launch/launch
+creating /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/P7_launch/urdf
+symbolically linking /home/rasmus/AAU/7th_semester/P7/build/P7_launch/urdf/holybro_x500v2_drone.urdf -> /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/P7_launch/urdf
+creating /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/P7_launch/meshes
+symbolically linking /home/rasmus/AAU/7th_semester/P7/build/P7_launch/meshes/holybro_x500v2_drone.stl -> /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/P7_launch/meshes
+creating /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/P7_launch/rviz
+symbolically linking /home/rasmus/AAU/7th_semester/P7/build/P7_launch/rviz/drone.rviz -> /home/rasmus/AAU/7th_semester/P7/install/P7_launch/share/P7_launch/rviz

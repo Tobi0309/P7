@@ -1,10 +1,10 @@
 services:
-  p7-drone-sit-awareness-isaac:
+  p7-drone-sit-awareness:
     build: 
       context: .
       dockerfile: Dockerfile
     image: p7-drone-sit-awareness:latest
-    container_name: p7-drone-sit-awareness
+    container_name: p7-drone-sit-awareness-ex
     network_mode: host
     privileged: true
     environment:
@@ -12,6 +12,8 @@ services:
       - ROS_DOMAIN_ID=42
       - QT_QPA_PLATFORM=xcb
       - XAUTHORITY=${XAUTHORITY:-/root/.Xauthority}
+      - RMW_IMPLEMENTATION=rmw_zenoh_cpp
+      - ZENOH_CONFIG_OVERRIDE=mode="client";connect/endpoints=["tcp/192.168.10.232:7447"]
     volumes:
       - /dev/dri/:/dev/dri
       - /tmp/.X11-unix:/tmp/.X11-unix
