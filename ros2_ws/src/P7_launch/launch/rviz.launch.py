@@ -29,8 +29,9 @@ def generate_launch_description():
         executable="rviz2",
         arguments=[
             "-d",
-            os.path.join(pkg_path, "rviz", "drone.rviz"),
-        ],
+            os.path.join(pkg_path, "rviz", "drone.rviz"),],
+        additional_env={
+        'LD_PRELOAD': '/usr/lib/x86_64-linux-gnu/liboctomap.so'},
         output="screen"
     )
 
