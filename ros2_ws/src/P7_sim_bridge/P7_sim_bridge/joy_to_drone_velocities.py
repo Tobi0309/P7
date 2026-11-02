@@ -5,8 +5,13 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Joy
 
-from px4_msgs.msg import OffboardControlMode, TrajectorySetpoint, VehicleAttitude
-from px4_msgs.msg import VehicleCommand
+from px4_msgs.msg import (
+	OffboardControlMode,
+	TrajectorySetpoint,
+	VehicleAttitude,
+	VehicleCommand,
+	VehicleStatus,
+)
 
 
 class JoyToDroneVelocities(Node):
@@ -15,9 +20,9 @@ class JoyToDroneVelocities(Node):
 	def __init__(self):
 		super().__init__("joy_to_drone_velocities")
 
-		self.max_speed = self.declare_parameter("max_speed", 3.0).value
+		self.max_speed = self.declare_parameter("max_speed", 5.0).value
 		self.max_vertical_speed = self.declare_parameter(
-			"max_vertical_speed", 1.0
+			"max_vertical_speed", 5.0
 		).value
 		self.max_turn_rate = self.declare_parameter(
 			"max_turn_rate", 1.0
@@ -26,7 +31,14 @@ class JoyToDroneVelocities(Node):
 		self.latest_joy = Joy()
 		self.latest_attitude = VehicleAttitude()
 		self.latest_attitude.q = [1.0, 0.0, 0.0, 0.0]
+		self.latest_vehicle_status = VehicleStatus()
 		self.arm_button_was_pressed = False
+		self.offboard_requested = False
+		self.setpoint_count = 0
+		self.last_nav_state = None
+		self.last_mode_command_us = 0
+		self.last_arm_command_us = 0
+		self.command_interval_us = 200_000
 
 		self.offboard_control_mode_publisher = self.create_publisher(
 			OffboardControlMode,
@@ -56,28 +68,42 @@ class JoyToDroneVelocities(Node):
 			self.attitude_callback,
 			qos_profile_sensor_data,
 		)
+		self.vehicle_status_subscription = self.create_subscription(
+			VehicleStatus,
+			"/fmu/out/vehicle_status",
+			self.vehicle_status_callback,
+			qos_profile_sensor_data,
+		)
 		self.setpoint_timer = self.create_timer(0.05, self.publish_setpoint)
 
 	def joy_callback(self, message: Joy):
 		self.latest_joy = message
 
 		arm_button_is_pressed = self.button_value(message, 1) == 1
+		self.offboard_requested = arm_button_is_pressed
 		if arm_button_is_pressed and not self.arm_button_was_pressed:
-			self.publish_vehicle_command(
-				VehicleCommand.VEHICLE_CMD_DO_SET_MODE,
-				param1=1.0,
-				param2=6.0,
-				param3=0.0,
-			)
-			self.publish_vehicle_command(
-				VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM,
-				param1=VehicleCommand.ARMING_ACTION_ARM,
-			)
+			self.get_logger().info("Arm button pressed, requesting offboard + arm.")
 
 		self.arm_button_was_pressed = arm_button_is_pressed
 
 	def attitude_callback(self, message: VehicleAttitude):
 		self.latest_attitude = message
+
+	def vehicle_status_callback(self, message: VehicleStatus):
+		self.latest_vehicle_status = message
+
+		if message.nav_state == self.last_nav_state:
+			return
+
+		self.last_nav_state = message.nav_state
+		self.get_logger().info(
+			"PX4 nav_state=%d, accepts_offboard_setpoints=%s, failsafe=%s"
+			% (
+				message.nav_state,
+				message.accepts_offboard_setpoints,
+				message.failsafe,
+			)
+		)
 
 	def publish_setpoint(self):
 		timestamp = self.get_clock().now().nanoseconds // 1000
@@ -85,7 +111,12 @@ class JoyToDroneVelocities(Node):
 		offboard_control_mode = OffboardControlMode()
 		offboard_control_mode.timestamp = timestamp
 		offboard_control_mode.velocity = True
+		offboard_control_mode.position = False
+		offboard_control_mode.acceleration = False
+		offboard_control_mode.attitude = False
+		offboard_control_mode.body_rate = False
 		self.offboard_control_mode_publisher.publish(offboard_control_mode)
+		self.setpoint_count += 1
 
 		left_right = self.axis_value(self.latest_joy, 0)
 		front_back = self.axis_value(self.latest_joy, 1)
@@ -94,7 +125,7 @@ class JoyToDroneVelocities(Node):
 		body_velocity = (
 			front_back * self.max_speed,
 			left_right * self.max_speed,
-			-throttle * self.max_vertical_speed,
+			throttle * self.max_vertical_speed,
 		)
 		ned_velocity = self.body_to_ned_velocity(body_velocity)
 
@@ -107,6 +138,33 @@ class JoyToDroneVelocities(Node):
 		setpoint.yaw = math.nan
 		setpoint.yawspeed = turning * self.max_turn_rate
 		self.trajectory_setpoint_publisher.publish(setpoint)
+
+		if not self.offboard_requested or self.setpoint_count < 40:
+			return
+
+		if (
+			self.latest_vehicle_status.nav_state
+			!= VehicleStatus.NAVIGATION_STATE_OFFBOARD
+			and timestamp - self.last_mode_command_us >= self.command_interval_us
+		):
+			self.publish_vehicle_command(
+				VehicleCommand.VEHICLE_CMD_DO_SET_MODE,
+				param1=1.0,
+				param2=6.0,
+				param3=0.0,
+			)
+			self.last_mode_command_us = timestamp
+
+		if (
+			self.latest_vehicle_status.arming_state
+			!= VehicleStatus.ARMING_STATE_ARMED
+			and timestamp - self.last_arm_command_us >= self.command_interval_us
+		):
+			self.publish_vehicle_command(
+				VehicleCommand.VEHICLE_CMD_COMPONENT_ARM_DISARM,
+				param1=VehicleCommand.ARMING_ACTION_ARM,
+			)
+			self.last_arm_command_us = timestamp
 
 	def publish_vehicle_command(self, command: int, **parameters: float):
 		message = VehicleCommand()

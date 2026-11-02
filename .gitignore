@@ -55,8 +55,8 @@ ros2_ws/build/
 ros2_ws/install/
 ros2_ws/log/
 ros2_ws/rosbags/
-.vscode/settings.json
+.vscode/
 
 *.mcap
-
-*.yaml
+ros2_ws/rosbag_19700101_001429/metadata.yaml
+ros2_ws/rosbag_19700101_002438/metadata.yaml
