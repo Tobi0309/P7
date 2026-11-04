@@ -60,6 +60,12 @@ private:
     float point_distance(geometry_msgs::msg::Point p0, geometry_msgs::msg::Point p1);
     bool setSG(Eigen::Vector3d grid_start, Eigen::Vector3d grid_goal);
     
+    // Height map:
+    void buildHeightMap();
+    void buildHeightCostMap();
+    void applyHeightCostMapToGraph();
+
+
     // set ending point of planing
     void handleSetGoal(const geometry_msgs::msg::Point::SharedPtr msg);
     void setGoal(Eigen::Vector3d wpos); 
@@ -93,8 +99,12 @@ private:
     std::shared_ptr<dsl::GridSearch<3>> gdsl_;
     dsl::GridPath<3> path_, splinecells_;
     std::vector<Eigen::Vector3d> splinepath_;
-    std::shared_ptr<double[]> occupancy_map;    
+    std::shared_ptr<double[]> occupancy_map;
+    std::vector<int> floor_height_map;
+    std::vector<double> height_cost_map;
 
+
+    
     // launch params
     int DSP_OCCUPIED = 2000000000;
     
