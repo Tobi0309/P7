@@ -41,6 +41,11 @@ fi
 
 # exit
 
+# remove the substituted folders/files
+if [ $ROS_VERSION = ${VERSION_ROS2} ]; then
+    rm -rf launch/
+fi
+
 # substitute the files/folders: CMakeList.txt, package.xml(s)
 if [ ${ROS_VERSION} = ${VERSION_ROS1} ]; then
     if [ -f package.xml ]; then
@@ -65,10 +70,5 @@ elif [ $ROS_VERSION = ${VERSION_ROS2} ]; then
     colcon build --cmake-args -DROS_EDITION=${VERSION_ROS2} -DDISTRO_ROS=${ROS_DISTRO}
 fi
 popd > /dev/null
-
-# remove the substituted folders/files
-if [ $ROS_VERSION = ${VERSION_ROS2} ]; then
-    rm -rf launch/
-fi
 
 popd > /dev/null
