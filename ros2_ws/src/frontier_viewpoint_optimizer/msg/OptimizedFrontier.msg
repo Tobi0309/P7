@@ -1,0 +1,6 @@
+uint32 id
+geometry_msgs/PoseStamped viewpoint
+float32 observable_frontier_area
+float32 expected_new_volume
+float32 information_gain
+float32 objective_score

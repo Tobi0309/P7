@@ -1,0 +1,48 @@
+frontier_viewpoint_optimizer_node:
+  ros__parameters:
+    frontier_topic: /frontier_segments
+    octomap_topic: /octomap_binary
+    odometry_topic: /Odometry
+    optimized_topic: /frontier_viewpoints
+    fov_marker_topic: /frontier_viewpoints/fov_markers
+    enable_diagnostics: true
+    # Calibrate these angles in the LiDAR frame. MID-360 horizontal FOV is 360deg.
+    horizontal_fov_deg: 360.0
+    vertical_fov_min_deg: -88.5
+    vertical_fov_max_deg: 46.5
+    min_range: 0.2
+    max_range: 40.0
+    sensor_offset_x: 0.0
+    sensor_offset_y: 0.0
+    sensor_offset_z: 0.0
+    candidate_radial_step: 2.0
+    candidate_radial_layers: 3
+    candidate_azimuth_samples: 16
+    candidate_altitude_offsets: [-1.0, 0.0, 1.0, 2.0]
+    minimum_frontier_offset: 1.0
+    maximum_frontier_offset: 8.0
+    uav_collision_radius: 0.55
+    collision_check_step: 0.20
+    reachability_check_step: 0.25
+    require_octomap_for_collision_check: true
+    max_candidate_count: 50
+    yaw_samples: 12
+    frontier_area_weight: 3.0
+    new_volume_weight: 0.5
+    altitude_bias_weight: 0.25
+    altitude_reference_z: 3.0
+    altitude_excess_scale: 2.0
+    excessive_altitude_penalty_weight: 1.2
+    volume_azimuth_samples: 48
+    volume_elevation_samples: 13
+    volume_ray_step: 0.4
+    volume_unknown_depth_cap: 8.0
+    enable_candidate_refining: true
+    refinement_iterations: 2
+    refinement_xy_step: 0.5
+    refinement_z_step: 0.35
+    refinement_yaw_step_deg: 10.0
+    fov_azimuth_segments: 48
+    fov_marker_alpha: 0.16
+    # Use solid directional arrows instead of the translucent FOV shell.
+    visualize_markers_as_arrows: true

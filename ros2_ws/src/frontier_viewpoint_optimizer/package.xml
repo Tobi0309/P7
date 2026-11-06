@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>frontier_viewpoint_optimizer</name><version>0.1.0</version>
+  <description>Incremental 3D frontier viewpoint optimizer.</description>
+  <maintainer email="maintainer@example.com">Maintainer</maintainer><license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <build_depend>rosidl_default_generators</build_depend><exec_depend>rosidl_default_runtime</exec_depend>
+  <depend>rclcpp</depend><depend>geometry_msgs</depend><depend>std_msgs</depend>
+  <depend>visualization_msgs</depend><depend>nav_msgs</depend><depend>octomap</depend>
+  <depend>octomap_msgs</depend><depend>frontier_segmentation</depend>
+  <depend>nlohmann_json</depend><depend>eigen</depend>
+  <member_of_group>rosidl_interface_packages</member_of_group>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

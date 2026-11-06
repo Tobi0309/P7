@@ -8,3 +8,4 @@ float32 width
 float32 height
 float32 elongation_ratio
 float32 convexity_ratio
+bool recent
