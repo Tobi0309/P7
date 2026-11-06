@@ -49,6 +49,7 @@ namespace fast_planner
   class PolynomialPrediction
   {
   private:
+    rclcpp::Clock::SharedPtr clock_;
     vector<Eigen::Matrix<double, 6, 1>> polys;
     double t1, t2; // start / end
     rclcpp::Time global_start_time_;
@@ -121,8 +122,12 @@ namespace fast_planner
     {
     }
 
-    void init(int id, int skip_num, int queue_size, rclcpp::Time global_start_time);
-
+    void init(
+    int id,
+    int skip_num,
+    int queue_size,
+    rclcpp::Time global_start_time,
+    rclcpp::Clock::SharedPtr clock);
     void poseCallback(const geometry_msgs::msg::PoseStamped::ConstPtr &msg);
 
     void clear()
@@ -136,10 +141,11 @@ namespace fast_planner
     }
 
   private:
-    list<Eigen::Vector4d> history_; // x,y,z;t
+    list<Eigen::Vector4d> history_;
     int skip_;
     int obj_idx_;
     Eigen::Vector3d scale_;
+    rclcpp::Clock::SharedPtr clock_;
   };
 
   /* ========== predict future trajectory using history ========== */

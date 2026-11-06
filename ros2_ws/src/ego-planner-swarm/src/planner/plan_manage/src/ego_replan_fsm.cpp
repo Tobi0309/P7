@@ -289,16 +289,14 @@ odom_vel_ = q * vel_body;
       return;
 
     // if (abs((ros::Time::now() - msg->start_time).toSec()) > 0.25)
-    rclcpp::Clock clock(RCL_SYSTEM_TIME);  // 确保使用当前节点的时间源
-    auto msg_time = rclcpp::Time(msg->start_time, clock.get_clock_type());
-    // RCLCPP_INFO(node_->get_logger(), "Clock type: %d", rclcpp::Clock().now().get_clock_type());
-    // RCLCPP_INFO(node_->get_logger(), "Start time clock type: %d", rclcpp::Time(msg->start_time).get_clock_type());
-    // RCLCPP_INFO(node_->get_logger(), "msg_time: %d", msg_time.get_clock_type());
-    if (abs((rclcpp::Clock().now() - msg_time).seconds()) > 0.25)
+    const auto clock_type = node_->get_clock()->get_clock_type();
+    const rclcpp::Time msg_time(msg->start_time, clock_type);
+    const rclcpp::Time time_now = node_->get_clock()->now();
+
+    if (abs((time_now - msg_time).seconds()) > 0.25)
     {
-      // ROS_ERROR("Time difference is too large! Local - Remote Agent %d = %fs", msg->drone_id, (ros::Time::now() - msg->start_time).toSec());
       RCLCPP_ERROR(node_->get_logger(), "Time difference is too large! Local - Remote Agent %d = %fs",
-                   msg->drone_id, (rclcpp::Clock().now() - msg_time).seconds());
+                  msg->drone_id, (time_now - msg_time).seconds());
       return;
     }
 
@@ -359,7 +357,8 @@ odom_vel_ = q * vel_body;
 
     planner_manager_->swarm_trajs_buf_[id].start_pos_ = planner_manager_->swarm_trajs_buf_[id].position_traj_.evaluateDeBoorT(0);
 
-    planner_manager_->swarm_trajs_buf_[id].start_time_ = msg->start_time;
+    planner_manager_->swarm_trajs_buf_[id].start_time_ =
+    rclcpp::Time(msg->start_time, node_->get_clock()->get_clock_type());
 
     /* Check Collision */
     if (planner_manager_->checkCollision(id))
@@ -445,7 +444,8 @@ odom_vel_ = q * vel_body;
 
       planner_manager_->swarm_trajs_buf_[i].start_pos_ = planner_manager_->swarm_trajs_buf_[i].position_traj_.evaluateDeBoorT(0);
 
-      planner_manager_->swarm_trajs_buf_[i].start_time_ = msg->traj[i].start_time;
+      planner_manager_->swarm_trajs_buf_[i].start_time_ =
+      rclcpp::Time(msg->traj[i].start_time, node_->get_clock()->get_clock_type());
     }
 
     have_recv_pre_agent_ = true;
@@ -581,7 +581,7 @@ odom_vel_ = q * vel_body;
     {
       /* determine if need to replan */
       LocalTrajData *info = &planner_manager_->local_data_;
-      rclcpp::Time time_now = rclcpp::Clock().now();
+      rclcpp::Time time_now = node_->get_clock()->now();
       double t_cur = (time_now - info->start_time_).seconds();
       t_cur = std::min(info->duration_, t_cur);
 
@@ -642,7 +642,7 @@ odom_vel_ = q * vel_body;
     }
     }
 
-    data_disp_.header.stamp = rclcpp::Clock().now();
+    data_disp_.header.stamp = node_->get_clock()->now();
     data_disp_pub_->publish(data_disp_);
 
   force_return:;
@@ -681,7 +681,7 @@ odom_vel_ = q * vel_body;
 
     LocalTrajData *info = &planner_manager_->local_data_;
     // ros::Time time_now = ros::Time::now();
-    auto time_now = rclcpp::Clock().now();
+    auto time_now = node_->get_clock()->now();
     // double t_cur = (time_now - info->start_time_).toSec();
     double t_cur = (time_now - info->start_time_).seconds();
 
@@ -733,12 +733,12 @@ odom_vel_ = q * vel_body;
     /* ---------- check trajectory ---------- */
     constexpr double time_step = 0.01;
     // double t_cur = (ros::Time::now() - info->start_time_).toSec();
-    double t_cur = (rclcpp::Clock().now() - info->start_time_).seconds();
+    double t_cur = (node_->get_clock()->now() - info->start_time_).seconds();
 
     Eigen::Vector3d p_cur = info->position_traj_.evaluateDeBoorT(t_cur);
     const double CLEARANCE = 1.0 * planner_manager_->getSwarmClearance();
     // double t_cur_global = ros::Time::now().toSec();
-    double t_cur_global = rclcpp::Clock().now().seconds();
+    double t_cur_global = node_->get_clock()->now().seconds();
 
     double t_2_3 = info->duration_ * 2 / 3;
     for (double t = t_cur; t < info->duration_; t += time_step)

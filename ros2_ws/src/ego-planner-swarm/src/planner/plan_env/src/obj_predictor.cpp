@@ -32,7 +32,12 @@ namespace fast_planner
   // int ObjHistory::skip_num_;
   // ros::Time ObjHistory::global_start_time_;
 
-  void ObjHistory::init(int id, int skip_num, int queue_size, rclcpp::Time global_start_time)
+  void ObjHistory::init(
+    int id,
+    int skip_num,
+    int queue_size,
+    rclcpp::Time global_start_time,
+    rclcpp::Clock::SharedPtr clock)
   {
     clear();
     skip_ = 0;
@@ -40,6 +45,7 @@ namespace fast_planner
     skip_num_ = skip_num;
     queue_size_ = queue_size;
     global_start_time_ = global_start_time;
+    clock_ = clock;
   }
 
   void ObjHistory::poseCallback(const geometry_msgs::msg::PoseStamped::ConstPtr &msg)
@@ -50,7 +56,7 @@ namespace fast_planner
 
     Eigen::Vector4d pos_t;
     pos_t(0) = msg->pose.position.x, pos_t(1) = msg->pose.position.y, pos_t(2) = msg->pose.position.z;
-    pos_t(3) = (rclcpp::Clock().now() - global_start_time_).seconds();
+    pos_t(3) = (clock_->now() - global_start_time_).seconds();
 
     history_.push_back(pos_t);
     // cout << "idx: " << obj_idx_ << "pos_t: " << pos_t.transpose() << endl;
@@ -98,7 +104,7 @@ namespace fast_planner
     {
       shared_ptr<ObjHistory> obj_his(new ObjHistory);
 
-      obj_his->init(i, skip_nums, queue_size, t_now);
+      obj_his->init(i, skip_nums, queue_size, t_now, this->get_clock());
       obj_histories_.push_back(obj_his);
 
       auto pose_sub = this->create_subscription<geometry_msgs::msg::PoseStamped>(

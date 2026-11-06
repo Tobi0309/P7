@@ -191,8 +191,8 @@ void GridMap::initMap(rclcpp::Node::SharedPtr node)
   md_.has_odom_ = false;
   md_.has_cloud_ = false;
   md_.image_cnt_ = 0;
-  md_.last_occ_update_time_ = rclcpp::Time(0, 0, RCL_SYSTEM_TIME);
-
+  md_.last_occ_update_time_ = rclcpp::Time(
+    0, 0, node_->get_clock()->get_clock_type());
   md_.fuse_time_ = 0.0;
   md_.update_num_ = 0;
   md_.max_fuse_time_ = 0.0;

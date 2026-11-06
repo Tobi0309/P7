@@ -128,6 +128,7 @@ namespace ego_planner
 
   private:
     GridMap::Ptr grid_map_;
+    rclcpp::Clock::SharedPtr clock_;
     fast_planner::ObjPredictor::Ptr moving_objs_;
     SwarmTrajData *swarm_trajs_{NULL}; // Can not use shared_ptr and no need to free
     int drone_id_;

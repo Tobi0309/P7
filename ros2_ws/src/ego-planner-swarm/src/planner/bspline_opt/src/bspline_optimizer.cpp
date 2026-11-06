@@ -7,6 +7,7 @@ namespace ego_planner
 
   void BsplineOptimizer::setParam(rclcpp::Node::SharedPtr node)
   {
+    clock_ = node->get_clock();
 
     node->declare_parameter("optimization/lambda_smooth", -1.0);
     node->declare_parameter("optimization/lambda_collision", -1.0);
@@ -876,7 +877,7 @@ namespace ego_planner
     cost = 0.0;
     int end_idx = q.cols() - order_ - (double)(q.cols() - 2 * order_) * 1.0 / 3.0; // Only check the first 2/3 points
     const double CLEARANCE = swarm_clearance_ * 2;
-    double t_now = rclcpp::Clock().now().seconds();
+    double t_now = clock_->now().seconds();
     constexpr double a = 2.0, b = 1.0, inv_a2 = 1 / a / a, inv_b2 = 1 / b / b;
 
     for (int i = order_; i < end_idx; i++)
@@ -929,7 +930,7 @@ namespace ego_planner
     cost = 0.0;
     int end_idx = q.cols() - order_;
     constexpr double CLEARANCE = 1.5;
-    double t_now = rclcpp::Clock().now().seconds();
+    double t_now = clock_->now().seconds();
 
     for (int i = order_; i < end_idx; i++)
     {

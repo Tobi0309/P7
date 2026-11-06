@@ -142,7 +142,7 @@ namespace ego_planner
       {
 
         double t;
-        double t_cur = (rclcpp::Clock().now() - local_data_.start_time_).seconds();
+        double t_cur = (node_->get_clock()->now() - local_data_.start_time_).seconds();
 
         vector<double> pseudo_arc_length;
         vector<Eigen::Vector3d> segment_point;
@@ -454,7 +454,7 @@ namespace ego_planner
     else
       return false;
 
-    auto time_now = rclcpp::Clock().now();
+    auto time_now = node_->get_clock()->now();
 
     global_data_.setGlobalTraj(gl_traj, time_now);
 
@@ -521,7 +521,7 @@ namespace ego_planner
     else
       return false;
 
-    auto time_now = rclcpp::Clock().now();
+    auto time_now = node_->get_clock()->now();
 
     global_data_.setGlobalTraj(gl_traj, time_now);
 

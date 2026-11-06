@@ -59,8 +59,8 @@ uniform_real_distribution<double> rand_yaw;
 
 rclcpp::Time time_update, time_change;
 
-void updateCallback();
-void visualizeObj(int id);
+void updateCallback(rclcpp::Clock::SharedPtr clock);
+void visualizeObj(int id, const rclcpp::Time &stamp);
 
 int main(int argc, char **argv)
 {
@@ -106,7 +106,11 @@ int main(int argc, char **argv)
   }
 
   auto update_timer = node->create_wall_timer(
-      std::chrono::duration<double>(1 / 30.0), updateCallback);
+    std::chrono::duration<double>(1 / 30.0),
+    [clock = node->get_clock()]()
+    {
+        updateCallback(clock);
+    });
   cout << "[dynamic]: initialize with " + to_string(obj_num) << " moving obj." << endl;
   rclcpp::sleep_for(std::chrono::seconds(1));
 
@@ -152,8 +156,8 @@ int main(int argc, char **argv)
     obj_models.push_back(model);
   }
 
-  time_update = rclcpp::Clock().now();
-  time_change = rclcpp::Clock().now();
+  time_update = node->now();
+  time_change = node->now();
 
   /* ---------- start loop ---------- */
   rclcpp::spin(node);
@@ -161,9 +165,9 @@ int main(int argc, char **argv)
   return 0;
 }
 
-void updateCallback()
+void updateCallback(rclcpp::Clock::SharedPtr clock)
 {
-  rclcpp::Time time_now = rclcpp::Clock().now();
+  rclcpp::Time time_now = clock->now();
 
   /* ---------- change input ---------- */
   // double dtc = (time_now - time_change).toSec();
@@ -196,7 +200,7 @@ void updateCallback()
   for (int i = 0; i < obj_num; ++i)
   {
     obj_models[i].update(dt);
-    visualizeObj(i);
+    visualizeObj(i, time_now);
     rclcpp::sleep_for(std::chrono::microseconds(1));
   }
 
@@ -213,7 +217,7 @@ void updateCallback()
   //   }
 }
 
-void visualizeObj(int id)
+void visualizeObj(int id, const rclcpp::Time &stamp)
 {
   Eigen::Vector3d pos, color, scale;
   pos = obj_models[id].getPosition();
@@ -230,7 +234,7 @@ void visualizeObj(int id)
   /* ---------- rviz ---------- */
   visualization_msgs::msg::Marker mk;
   mk.header.frame_id = "world";
-  mk.header.stamp = rclcpp::Clock().now();
+  mk.header.stamp = stamp;
   mk.type = visualization_msgs::msg::Marker::CUBE;
   mk.action = visualization_msgs::msg::Marker::ADD;
   mk.id = id;
@@ -249,6 +253,7 @@ void visualizeObj(int id)
 
   /* ---------- pose ---------- */
   geometry_msgs::msg::PoseStamped pose;
+  pose.header.stamp = stamp;
   pose.header.frame_id = "world";
   // pose.header.seq = id;
   pose.pose.position.x = pos(0), pose.pose.position.y = pos(1), pose.pose.position.z = pos(2);

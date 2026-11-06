@@ -24,7 +24,7 @@ int traj_id_;
 double last_yaw_, last_yaw_dot_;
 double time_forward_;
 
-void bsplineCallback(traj_utils::msg::Bspline::ConstPtr msg)
+void bsplineCallback(traj_utils::msg::Bspline::ConstPtr msg,rclcpp::Clock::SharedPtr clock)
 {
   // parse pos traj
 
@@ -54,8 +54,7 @@ void bsplineCallback(traj_utils::msg::Bspline::ConstPtr msg)
   // }
 
   // UniformBspline yaw_traj(yaw_pts, msg->order, msg->yaw_dt);
-
-  start_time_ = msg->start_time;
+  start_time_ = rclcpp::Time(msg->start_time,clock->get_clock_type());
   traj_id_ = msg->traj_id;
 
   traj_.clear();
@@ -236,9 +235,13 @@ int main(int argc, char **argv)
   auto node = rclcpp::Node::make_shared("traj_server");
 
   auto bspline_sub = node->create_subscription<traj_utils::msg::Bspline>(
-      "planning/bspline",
-      10,
-      bsplineCallback);
+    "planning/bspline",
+    10,
+    [clock = node->get_clock()](
+        traj_utils::msg::Bspline::ConstPtr msg)
+    {
+        bsplineCallback(msg, clock);
+    });
 
   pos_cmd_pub = node->create_publisher<quadrotor_msgs::msg::PositionCommand>(
       "/position_cmd",
