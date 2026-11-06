@@ -160,21 +160,20 @@ std::pair<double, double> calculate_yaw(double t_cur, Eigen::Vector3d &pos, rclc
   return yaw_yawdot;
 }
 
-void cmdCallback()
+void cmdCallback(rclcpp::Clock::SharedPtr clock)
 {
   /* no publishing before receive traj_ */
   if (!receive_traj_)
     return;
 
   // 统一时间源
-  rclcpp::Clock clock(RCL_ROS_TIME);  
-  rclcpp::Time time_now = clock.now();
+  rclcpp::Time time_now = clock->now();
   double t_cur = (time_now - start_time_).seconds();
 
   Eigen::Vector3d pos(Eigen::Vector3d::Zero()), vel(Eigen::Vector3d::Zero()), acc(Eigen::Vector3d::Zero()), pos_f;
   std::pair<double, double> yaw_yawdot(0, 0);
 
-  static rclcpp::Time time_last = clock.now();
+  static rclcpp::Time time_last = clock->now();
   if (t_cur < traj_duration_ && t_cur >= 0.0)
   {
     pos = traj_[0].evaluateDeBoorT(t_cur);
@@ -246,8 +245,10 @@ int main(int argc, char **argv)
       50);
 
   auto cmd_timer = node->create_wall_timer(
-      std::chrono::milliseconds(10),
-      cmdCallback);
+    std::chrono::milliseconds(10),
+    [clock = node->get_clock()]() {
+      cmdCallback(clock);
+    });
 
   /* control parameter */
   cmd.kx[0] = pos_gain[0];
