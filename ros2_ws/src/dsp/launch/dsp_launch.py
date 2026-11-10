@@ -13,16 +13,14 @@ def generate_launch_description():
             # namespace=name_space,
             executable='dsp',
             # name=name_space + '_dsp',
-            name='dsp'
+            name='dsp',
             parameters=[
             #   Parameter("base_link_frame_id", name_space + "/body"),
-                Parameter("base_link_frame_id", "/body"),
-                Parameter("odom_frame_id", "/world_old"),
+                Parameter("base_link_frame_id", "body"),
+                Parameter("odom_frame_id", "world"),
                 Parameter("use_3d", True),
             #   Parameter("map_topic", name_space + "/octomap_full"),
-                Parameter("map_topic", "/octomap_full"),
-
-                
+                Parameter("map_topic", "/octomap_full"),                
             ]
         )
     ])

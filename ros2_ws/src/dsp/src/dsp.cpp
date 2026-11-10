@@ -20,6 +20,9 @@ Dsp::Dsp() : Node("dsp")
     this->declare_parameter("DSP_UNKNOWN", 10000);
     this->declare_parameter("update_rate", 1);
     this->declare_parameter("debug", false);
+    this->declare_parameter("height_kernel_size", 3);
+    this->declare_parameter("optimal_voxel_height", 6);
+    this->declare_parameter("optimal_voxel_height_cost", 10);
 
     spline_step_ = this->get_parameter("spline_step").get_parameter_value().get<double>();
 
@@ -58,8 +61,6 @@ Dsp::Dsp() : Node("dsp")
     double RATE = this->get_parameter("RATE").get_parameter_value().get<double>();
     if(RATE > 0.0)
         path_update_timer = this->create_wall_timer(std::chrono::duration<double, std::milli>(RATE), std::bind(&Dsp::pathUpdateCallback, this));
-
-
 
     cost_srv_ = this->create_service<dsp_interfaces::srv::PathCost>("/dsp/path_cost", 
     //&Dsp::request_cost, this);
@@ -246,8 +247,133 @@ void Dsp::buildGDSP(std::shared_ptr<octomap::OcTree> tree)
         }
     }
 */
-  buildGraph();
+    buildGraph();
+
+    // Build and apply height penalties after base graph is constructed.
+    buildHeightMap();
+    buildHeightCostMap();
+    applyHeightCostMapToGraph();
 }
+
+
+void Dsp::buildHeightMap() {
+    int DSP_UNKNOWN = this->get_parameter("DSP_UNKNOWN").get_parameter_value().get<int>();
+    int HEIGHT_KERNEL_SIZE = this->get_parameter("height_kernel_size").get_parameter_value().get<int>();
+
+    if (HEIGHT_KERNEL_SIZE % 2 == 0) {
+        RCLCPP_WARN(this->get_logger(), "Height kernel size should be odd. Incrementing by 1.");
+        HEIGHT_KERNEL_SIZE += 1;
+    }
+
+    floor_height_map.resize(length_voxel * width_voxel, -1); // -1 marks general value.
+    for (int y = 0; y < width_voxel; y++) {
+        for (int x = 0; x < length_voxel; x++) {
+            for (int z = 0; z < height_voxel-1; z++) {
+                int idx = x + y * length_voxel + z * length_voxel * width_voxel;
+                int idx_above = x + y * length_voxel + (z + 1) * length_voxel * width_voxel;
+
+                bool occupied = (occupancy_map[idx] == DSP_OCCUPIED);
+                bool free_above = (occupancy_map[idx_above] < DSP_UNKNOWN);
+
+                if (occupied && free_above) {
+                    floor_height_map[x + y * length_voxel] = z;
+                    break; 
+                }
+            }
+        }
+    }
+    
+    int padding = (HEIGHT_KERNEL_SIZE-1) / 2;
+
+    std::vector<int> smoothed_floor_height_map = floor_height_map; 
+
+    for (int y = padding; y < width_voxel - padding; y++) {
+        for (int x = padding; x < length_voxel - padding; x++) {
+            std::vector<int> heights;
+
+            for (int dy = -padding; dy <= padding; dy++) {
+                for (int dx = -padding; dx <= padding; dx++) {
+                    int neighbor_idx = (x + dx) + (y + dy) * length_voxel;
+                    if (floor_height_map[neighbor_idx] >= 0) {
+                        heights.push_back(floor_height_map[neighbor_idx]);
+                    }
+                }
+            }
+
+            if (!heights.empty()) {
+                size_t mid = heights.size() / 2;
+
+                std::nth_element(
+                    heights.begin(),
+                    heights.begin() + mid,
+                    heights.end());
+                
+                smoothed_floor_height_map[x + y * length_voxel] = heights[mid];
+            }
+        }
+    }
+    floor_height_map.swap(smoothed_floor_height_map);
+}
+
+void Dsp::buildHeightCostMap() {
+    int DSP_UNKNOWN = this->get_parameter("DSP_UNKNOWN").get_parameter_value().get<int>();
+    int OPTIMAL_VOXEL_HEIGHT = this->get_parameter("optimal_voxel_height").get_parameter_value().get<int>();
+    int OPTIMAL_VOXEL_HEIGHT_COST = this->get_parameter("optimal_voxel_height_cost").get_parameter_value().get<int>();
+
+    height_cost_map.resize(length_voxel * width_voxel * height_voxel, 0.0);
+    
+    for (int x = 0; x < length_voxel; x++) {
+        for (int y = 0; y < width_voxel; y++) {
+            for (int z = 0; z < height_voxel; z++) {
+                int idx = x + y * length_voxel + z * length_voxel * width_voxel;
+                int floor_height = floor_height_map[x + y * length_voxel];
+                if (floor_height >= 0) {
+                    int cost = std::abs(z - (floor_height+OPTIMAL_VOXEL_HEIGHT)) * OPTIMAL_VOXEL_HEIGHT_COST;
+                    height_cost_map[idx] = cost;
+                } else {
+                    height_cost_map[idx] = DSP_UNKNOWN; 
+                }
+            }
+        }
+    }
+}
+
+void Dsp::applyHeightCostMapToGraph()
+{
+    int DSP_UNKNOWN = this->get_parameter("DSP_UNKNOWN").get_parameter_value().get<int>();
+
+    if (!gdsl_) {
+        return;
+    }
+
+    int size = length_voxel * width_voxel * height_voxel;
+    if ((int)height_cost_map.size() != size) {
+        return;
+    }
+
+    for (int z = 0; z < height_voxel; z++) {
+        for (int y = 0; y < width_voxel; y++) {
+            for (int x = 0; x < length_voxel; x++) {
+                int idx = x + y * length_voxel + z * length_voxel * width_voxel;
+                double base_cost = occupancy_map[idx];
+
+                // Preserve occupied and unknown semantics from base map.
+                if (base_cost == DSP_OCCUPIED || base_cost >= DSP_UNKNOWN) {
+                    continue;
+                }
+
+                double final_cost = base_cost + height_cost_map[idx];
+                if (final_cost >= DSP_UNKNOWN) {
+                    final_cost = DSP_UNKNOWN - 1;
+                }
+
+                Eigen::Vector3d p(x, y, z);
+                gdsl_->SetCost(p, final_cost);
+            }
+        }
+    }
+}
+
 
 void Dsp::buildGraph(){
     RCLCPP_INFO(this->get_logger(), "Building search graph...");
@@ -268,7 +394,6 @@ void Dsp::updateGDSP(std::shared_ptr<octomap::OcTree> tree)
     {
         Eigen::Vector3d pos(it.getX(), it.getY(), it.getZ());
         pos = posRes(pos);
-
             
         int n = it.getSize() / res_octomap;
         if (n != 1){
@@ -314,6 +439,12 @@ void Dsp::updateGDSP(std::shared_ptr<octomap::OcTree> tree)
             i++;
         } while ( i < n/2);
     }
+
+    // Recompute and apply updated height penalties to the current planner graph.
+    buildHeightMap();
+    buildHeightCostMap();
+    applyHeightCostMapToGraph();
+
     return;
 }
 
