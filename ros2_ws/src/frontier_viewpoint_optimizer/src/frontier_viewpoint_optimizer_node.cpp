@@ -50,7 +50,7 @@ FrontierViewpointOptimizer::FrontierViewpointOptimizer() : Node("frontier_viewpo
 	map_topic_=param<std::string>("octomap_topic","/octomap_binary");
 	odom_topic_=param<std::string>("odometry_topic","/Odometry");
 	result_topic_=param<std::string>("optimized_topic","/frontier_viewpoints");
-	marker_topic_=param<std::string>("fov_marker_topic","/frontier_viewpoint_fov");
+	marker_topic_=param<std::string>("fov_marker_topic","/frontier_viewpoints/fov_markers");
 	frame_override_=param<std::string>("frame_id_override","");
 	hfov_=rad(param<double>("horizontal_fov_deg",360.0));
 	vmin_=rad(param<double>("vertical_fov_min_deg",-88.5));
@@ -157,8 +157,8 @@ void FrontierViewpointOptimizer::odomCb(const nav_msgs::msg::Odometry::SharedPtr
 	processPending();
 }
 void FrontierViewpointOptimizer::frontierCb(const FrontierArray::SharedPtr m){
-have_frontiers_=true; 
-  if (frame_override_.empty()) {
+	have_frontiers_=true; 
+  	if (frame_override_.empty()) {
 		frame_=m->header.frame_id;
 	}
 	else { 
