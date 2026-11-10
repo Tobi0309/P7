@@ -30,6 +30,17 @@ def generate_launch_description():
         ]
     )
 
+    camera_init_to_world_old = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        arguments=[
+            "0", "0", "0",
+            "0", "0", "3.1415",
+            "camera_init",
+            "world_old"
+        ]
+    )
+
     camera_init_to_body = Node(
         package="tf2_ros",
         executable="static_transform_publisher",
@@ -50,6 +61,7 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
+        camera_init_to_world_old,
         world_to_camera_init,
         camera_init_to_body,
         robot_state_publisher

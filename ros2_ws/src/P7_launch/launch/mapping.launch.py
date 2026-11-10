@@ -47,7 +47,7 @@ def generate_launch_description():
             name='octomap_server',
             output='log', #'screen',
             parameters=[{
-                'frame_id': f'camera_init',
+                'frame_id': f'world',
                 'resolution': 0.5,
                 'base_frame_id': f'body',
                 'filter_speckles': True,
@@ -77,7 +77,7 @@ def generate_launch_description():
             name='octomap_server',
             output='log', #'screen',
             parameters=[{
-                'frame_id': f'camera_init',
+                'frame_id': f'world',
                 'resolution': 0.5,
                 'base_frame_id': f'body',
                 'filter_speckles': True,
