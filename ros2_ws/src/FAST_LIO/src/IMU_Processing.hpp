@@ -195,7 +195,7 @@ void ImuProcess::IMU_init(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 
           mean_acc, Eigen::Vector3d::UnitZ());
 
   // Rotate the measured acceleration into the aligned frame.
-  mean_acc = gravity_alignment * mean_acc;
+  V3D aligned_acc = gravity_alignment * mean_acc;
 
   state_ikfom init_state = kf_state.get_x();
 
@@ -203,7 +203,7 @@ void ImuProcess::IMU_init(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 
   init_state.rot = gravity_alignment;
 
   // Gravity now points along negative world Z.
-  init_state.grav = S2(-mean_acc / mean_acc.norm() * G_m_s2);
+  init_state.grav = S2(-aligned_acc / aligned_acc.norm() * G_m_s2);
 
   // Gyroscope bias remains in the IMU measurement frame.
   init_state.bg = mean_gyr;
