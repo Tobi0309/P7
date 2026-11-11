@@ -1,5 +1,5 @@
 from pathlib import Path
-
+from launch_ros.actions import Node
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -52,6 +52,30 @@ def generate_launch_description():
         }.items()
     )
 
+    imu_propagation = Node(
+        package='fast_lio',
+        executable='imu_propagation',
+        name='imu_propagation',
+        output='screen',
+        parameters=[{'use_sim_time': True}],
+    )
+
+    odometry_transformer = Node(
+    	package='fast_lio',
+    	executable='odometry_transformer',
+    	name='odometry_transformer',
+    	output='screen',
+    	parameters=[{'use_sim_time': True}],
+    )
+
+    goal_converter = Node(
+	package='fast_lio',
+	executable='goal_converter',
+	name='goal_converter',
+	output='screen',
+	parameters=[{'use_sim_time': True}],
+    )
+
     rosbag_player = ExecuteProcess(
         cmd=['ros2', 'bag', 'play', bag_path, '--clock'],
         output='screen',
@@ -66,5 +90,9 @@ def generate_launch_description():
         declare_rviz_config,
         rviz,
         fastlio,
+        imu_propagation,
+	odometry_transformer,
+	goal_converter,
         delayed_rosbag_player,
     ])
+
