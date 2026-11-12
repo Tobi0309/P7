@@ -16,7 +16,7 @@ class YOLO_Human_Detection(Node):
     def __init__(self):
         super().__init__('yolo_human_detection')
         forestpersons_model = os.path.join(
-            get_package_share_directory('human_detection'), 'pre_trained_yolo_model', 'best.pt')
+            get_package_share_directory('P7_human_detection'), 'pre_trained_yolo_model', 'best.pt')
 
         self.declare_parameter('model_path', forestpersons_model)
         self.declare_parameter('input_topic', '/UAV/rgbd_camera/color/image_raw/compressed')

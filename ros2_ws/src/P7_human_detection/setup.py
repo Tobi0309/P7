@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 from glob import glob #
 import os 
 
-package_name = 'human_detection'
+package_name = 'P7_human_detection'
 
 setup(
     name=package_name,
