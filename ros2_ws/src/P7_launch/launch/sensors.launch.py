@@ -25,7 +25,10 @@ def generate_launch_description():
 
     livox = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
-            os.path.join(launch_dir, 'msg_MID360s_launch.py')
+            [
+                get_package_share_directory('livox_ros_driver2'),
+                '/launch/msg_MID360s_launch.py'
+            ]
         )
     )
 
