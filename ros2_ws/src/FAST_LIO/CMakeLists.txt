@@ -61,6 +61,7 @@ find_package(pcl_ros REQUIRED)
 find_package(pcl_conversions REQUIRED)
 find_package(livox_ros_driver2 REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
+find_package(px4_msgs REQUIRED)
 
 set(dependencies
   rclcpp
@@ -146,12 +147,28 @@ ament_target_dependencies(goal_converter
   geometry_msgs
   nav_msgs
 )
+
+# PX4 external odometry bridge
+add_executable(px4_odometry_bridge src/px4_odometry_bridge.cpp)
+
+target_link_libraries(px4_odometry_bridge Eigen3::Eigen)
+
+ament_target_dependencies(px4_odometry_bridge
+  rclcpp
+  nav_msgs
+  geometry_msgs
+  tf2
+  tf2_ros
+  px4_msgs
+)
+
 # ---------------- Install --------------- #
 install(TARGETS
   fastlio_mapping
   imu_propagation
   odometry_transformer
   goal_converter
+  px4_odometry_bridge
   DESTINATION lib/${PROJECT_NAME}
 )
 
