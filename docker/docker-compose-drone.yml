@@ -23,11 +23,6 @@ services:
       - /tmp/.X11-unix:/tmp/.X11-unix
       - ../ros2_ws:/home/P7_drone_sit_awareness_ws
       - ${XAUTHORITY:-/root/.Xauthority}:${XAUTHORITY:-/root/.Xauthority}:ro
-    command: >
-      bash -c "
-      source /opt/ros/jazzy/setup.bash &&
-      source /home/P7_drone_sit_awareness_ws/install/setup.bash &&
-      exec bash"
 #    user: "1000:1000"
 
     devices:
