@@ -69,6 +69,32 @@ RUN apt-get update && apt-get install -y \
     ros-jazzy-joy \
     && rm -rf /var/lib/apt/lists/*
 
+# ROS <-> vision glue + Python tooling
+RUN apt-get update && apt-get install -y \
+    python3-pip \
+    python3-numpy \
+    ros-jazzy-cv-bridge \
+    ros-jazzy-vision-msgs \
+    libgl1 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Download YOLO and CUDA correctly
+# Remove any CPU-only torch that may already be present
+RUN pip3 uninstall -y --break-system-packages torch torchvision || true
+# CUDA 13 PyTorch wheels (work on Orin / JetPack 7.2, Python 3.12)
+RUN pip3 install --no-cache-dir --break-system-packages \
+    torch torchvision "numpy<2" \
+    --index-url https://download.pytorch.org/whl/cu130 \
+    --extra-index-url https://pypi.org/simple
+# Libraries that JetPack does not ship but torch needs
+RUN pip3 install --no-cache-dir --break-system-packages \
+    nvidia-cudnn-cu13 nvidia-nccl-cu13 \
+    nvidia-cusparselt-cu13 nvidia-nvshmem-cu13
+# Ultralytics LAST so it keeps the CUDA torch
+RUN pip3 install --no-cache-dir --break-system-packages \
+    ultralytics-opencv-headless "numpy<2"
+
 # Install Livox SDK
 WORKDIR /root
 RUN git clone https://github.com/Livox-SDK/Livox-SDK2.git && \

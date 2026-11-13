@@ -24,7 +24,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'rosbag_recorder = P7_control_io_handler.rosbag_recorder:main'
+            'rosbag_recorder = P7_control_io_handler.rosbag_recorder:main',
+            'pos_cmd_to_px4 = P7_control_io_handler.px4_control_test:main',
         ],
     },
 )
