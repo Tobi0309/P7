@@ -31,8 +31,27 @@ def generate_launch_description():
             output='screen',
         )
     
+    color_compressor = Node(
+        package='image_transport',
+        executable='republish',
+        name='color_compressor',
+        namespace='UAV/rgbd_camera/color',
+        output='screen',
+        parameters=[{
+            'in_transport': 'raw',
+            'out_transport': 'compressed',
+        }],
+        remappings=[
+            ('in', '/UAV/rgbd_camera/color/image_raw'),
+            ('out/compressed', '/UAV/rgbd_camera/color/image_raw/compressed'),
+        ],
+    )
+
+
+
     return LaunchDescription([
         joy,
         controller_mapper,
+        color_compressor,
         lidar_mapper,
     ])
