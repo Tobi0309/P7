@@ -61,6 +61,7 @@ find_package(pcl_ros REQUIRED)
 find_package(pcl_conversions REQUIRED)
 find_package(livox_ros_driver2 REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
+find_package(px4_msgs REQUIRED)
 
 set(dependencies
   rclcpp
@@ -85,10 +86,11 @@ message(STATUS "PCL: ${PCL_INCLUDE_DIRS}")
 
 set(msg_files
   "msg/Pose6D.msg"
+  "msg/FastLioImuState.msg"
 )
-
 rosidl_generate_interfaces(${PROJECT_NAME}
   ${msg_files}
+  DEPENDENCIES geometry_msgs nav_msgs
 )
 ament_export_dependencies(rosidl_default_runtime)
 
@@ -115,8 +117,58 @@ endif()
 
 ament_target_dependencies(fastlio_mapping ${dependencies})
 
+# High-frequency IMU odometry propagation
+add_executable(imu_propagation src/imu_propagation.cpp)
+
+target_link_libraries(imu_propagation Eigen3::Eigen)
+
+ament_target_dependencies(imu_propagation ${dependencies})
+
+target_link_libraries(imu_propagation ${cpp_typesupport_target})
+
+# Aircraft-centered odometry transformer
+add_executable(odometry_transformer src/odometry_transformer.cpp)
+
+target_link_libraries(odometry_transformer Eigen3::Eigen)
+
+ament_target_dependencies(odometry_transformer
+  rclcpp
+  nav_msgs
+  geometry_msgs
+  tf2
+  tf2_ros
+)
+
+# RViz 2D goal to UAV waypoint converter
+add_executable(goal_converter src/goal_converter.cpp)
+
+ament_target_dependencies(goal_converter
+  rclcpp
+  geometry_msgs
+  nav_msgs
+)
+
+# PX4 external odometry bridge
+add_executable(px4_odometry_bridge src/px4_odometry_bridge.cpp)
+
+target_link_libraries(px4_odometry_bridge Eigen3::Eigen)
+
+ament_target_dependencies(px4_odometry_bridge
+  rclcpp
+  nav_msgs
+  geometry_msgs
+  tf2
+  tf2_ros
+  px4_msgs
+)
+
 # ---------------- Install --------------- #
-install(TARGETS fastlio_mapping
+install(TARGETS
+  fastlio_mapping
+  imu_propagation
+  odometry_transformer
+  goal_converter
+  px4_odometry_bridge
   DESTINATION lib/${PROJECT_NAME}
 )
 
