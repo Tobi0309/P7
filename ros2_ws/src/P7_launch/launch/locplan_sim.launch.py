@@ -55,11 +55,11 @@ def generate_launch_description():
     )
 
     odometry_transformer = Node(
-        package='fast_lio',
-        executable='odometry_transformer',
-        name='odometry_transformer',
-        output='screen',
-        parameters=[{'use_sim_time': True}],
+    	package='fast_lio',
+    	executable='odometry_transformer',
+    	name='odometry_transformer',
+    	output='screen',
+    	parameters=[{'use_sim_time': True}],
     )
 
     goal_converter = Node(
