@@ -62,6 +62,7 @@
 #include <livox_ros_driver2/msg/custom_msg.hpp>
 #include "preprocess.h"
 #include <ikd-Tree/ikd_Tree.h>
+#include "fast_lio/msg/fast_lio_imu_state.hpp"
 
 #define INIT_TIME           (0.1)
 #define LASER_POINT_COV     (0.001)
@@ -666,7 +667,34 @@ void publish_odometry(const rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPt
     trans.transform.rotation.z = odomAftMapped.pose.pose.orientation.z;
     tf_br->sendTransform(trans);
 }
+void publish_imu_state(
+    const rclcpp::Publisher<fast_lio::msg::FastLioImuState>::SharedPtr &pub)
+{
+    fast_lio::msg::FastLioImuState msg;
 
+    // Reuse the corrected odometry, including its timestamp and frames
+    msg.odometry = odomAftMapped;
+
+    // Estimated gyroscope bias
+    msg.gyro_bias.x = state_point.bg(0);
+    msg.gyro_bias.y = state_point.bg(1);
+    msg.gyro_bias.z = state_point.bg(2);
+
+    // Estimated accelerometer bias
+    msg.accel_bias.x = state_point.ba(0);
+    msg.accel_bias.y = state_point.ba(1);
+    msg.accel_bias.z = state_point.ba(2);
+
+    // Estimated gravity in the world frame
+    msg.gravity.x = state_point.grav[0];
+    msg.gravity.y = state_point.grav[1];
+    msg.gravity.z = state_point.grav[2];
+
+    // Same accelerometer scaling used internally by FAST-LIO
+    msg.accel_scale = p_imu->get_accel_scale();
+
+    pub->publish(msg);
+}
 void publish_path(rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr pubPath)
 {
     set_posestamp(msg_body_pose);
@@ -941,6 +969,7 @@ public:
         pubLaserCloudEffect_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/cloud_effected", 20);
         pubLaserCloudMap_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/Laser_map", 20);
         pubOdomAftMapped_ = this->create_publisher<nav_msgs::msg::Odometry>("/Odometry", 20);
+        pubImuState_ = this->create_publisher<fast_lio::msg::FastLioImuState>("/fast_lio/imu_state", 20);
         pubPath_ = this->create_publisher<nav_msgs::msg::Path>("/path", 20);
         tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
 
@@ -1071,6 +1100,7 @@ private:
 
             /******* Publish odometry *******/
             publish_odometry(pubOdomAftMapped_, tf_broadcaster_);
+            publish_imu_state(pubImuState_);
 
             /*** add the feature points to map kdtree ***/
             t3 = omp_get_wtime();
@@ -1143,6 +1173,7 @@ private:
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pubLaserCloudEffect_;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pubLaserCloudMap_;
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pubOdomAftMapped_;
+    rclcpp::Publisher<fast_lio::msg::FastLioImuState>::SharedPtr pubImuState_;
     rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr pubPath_;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr sub_imu_;
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr sub_pcl_pc_;
