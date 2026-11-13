@@ -55,6 +55,8 @@ RUN apt-get update && apt-get install -y \
 
 RUN apt-get update && apt-get install -y \
     python3-scipy \
+    python3-pip \
+    python3-venv \
     ros-jazzy-rmw-zenoh-cpp \
     ros-jazzy-pcl-conversions \
     ros-jazzy-rosbag2 \
@@ -106,6 +108,11 @@ RUN cd Livox-SDK2/build && \
     make install && \
     ldconfig
 
+RUN python3 -m pip install --break-system-packages \
+    do-mpc[full] \
+    casadi \
+    --ignore-installed numpy
+
 # Install DSL dependency required by DSP (D*+ planner)
 WORKDIR /root
 
@@ -129,6 +136,11 @@ RUN git clone https://github.com/jhu-asco/dsl.git && \
 
 # Create workspace directory
 WORKDIR /home/P7_drone_sit_awareness_ws/
+
+#RUN python3 -m pip install --upgrade pip && \
+#    python3 -m pip install \
+#        do-mpc \
+#        casadi 
 
 # Automatically source ROS and workspace setups in bashrc
 RUN echo "source /opt/ros/jazzy/setup.bash" >> /root/.bashrc && \

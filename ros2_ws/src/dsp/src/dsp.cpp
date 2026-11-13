@@ -12,7 +12,7 @@ Dsp::Dsp() : Node("dsp")
     this->declare_parameter("upper_thresh", 60);
     this->declare_parameter("risk", 2);
     this->declare_parameter("RATE", 2000.0);
-    this->declare_parameter("use_odometry", false);
+    this->declare_parameter("use_odometry", falxse);
     this->declare_parameter("use_3d", true);
     this->declare_parameter("odom_topic", "odometry/imu");
     this->declare_parameter("odom_frame_id", "map");
@@ -23,6 +23,7 @@ Dsp::Dsp() : Node("dsp")
     this->declare_parameter("height_kernel_size", 3);
     this->declare_parameter("optimal_voxel_height", 6);
     this->declare_parameter("optimal_voxel_height_cost", 10);
+    this->declare_parameter("goal_voxels_ahead", 5);
 
     spline_step_ = this->get_parameter("spline_step").get_parameter_value().get<double>();
 
@@ -31,6 +32,7 @@ Dsp::Dsp() : Node("dsp")
 
     path_pub_ = this->create_publisher<nav_msgs::msg::Path>("dsp/path", 1);
     splinepath_pub_ =  this->create_publisher<nav_msgs::msg::Path>("dsp/spline_path", 1);
+    goal_pub_ = this->create_publisher<geometry_msgs::msg::Point>("/goal", 1);
 
     if(this->get_parameter("use_odometry").get_parameter_value().get<bool>())
     {
@@ -746,7 +748,16 @@ void Dsp::planAllPaths()
 
 void Dsp::publishAllPaths()
 {
-  path_pub_->publish(dspPathToRosMsg(path_, false));
+    nav_msgs::msg::Path path_msg = dspPathToRosMsg(path_, false);
+    path_pub_->publish(path_msg);
+
+    if (!path_msg.poses.empty()) {
+        int goal_voxels_ahead = this->get_parameter("goal_voxels_ahead").get_parameter_value().get<int>();
+        goal_voxels_ahead = std::max(0, goal_voxels_ahead);
+        size_t goal_index = std::min(static_cast<size_t>(goal_voxels_ahead), path_msg.poses.size() - 1);
+        goal_pub_->publish(path_msg.poses[goal_index].pose.position);
+    }
+
   if (path_.cells.size() <= 3){
     splinepath_pub_->publish(dspPathToRosMsg(path_, false)); 
   } else {

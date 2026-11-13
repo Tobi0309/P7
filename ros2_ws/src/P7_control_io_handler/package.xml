@@ -8,6 +8,7 @@
   <license>Apache-2.0</license>
 
   <exec_depend>px4_msgs</exec_depend>
+  <exec_depend>quadrotor_msgs</exec_depend>
   <exec_depend>rclpy</exec_depend>
   <exec_depend>rosbag2_interfaces</exec_depend>
 

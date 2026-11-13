@@ -50,8 +50,8 @@ def generate_launch_description():
 
 
     return LaunchDescription([
-        joy,
-        controller_mapper,
+        #joy,
+        #controller_mapper,
         color_compressor,
         lidar_mapper,
     ])
