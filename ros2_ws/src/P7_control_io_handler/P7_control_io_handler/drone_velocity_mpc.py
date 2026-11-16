@@ -28,15 +28,9 @@ class ModelPredictiveControlDroneFollower(Node):
 
         self.declare_parameter("path_topic", "/drone_path")
         self.declare_parameter("bspline_topic", "/drone_0_planning/bspline")
-        # Must match the frame the planner path is expressed in. ego-planner
-        # plans on /Odometry_base_link, whose header frame is FAST-LIO's
-        # camera_init (world -> camera_init is rotated by 2.749 rad).
         self.declare_parameter("world_frame", "camera_init")
         self.declare_parameter("drone_frame", "base_link")
-        # Yaw of PX4's nose (body +x) relative to drone_frame's +x axis, in
-        # rad. pi = drone_frame x-axis points out of the tail. Set to 0.0 if
-        # drone_frame +x is the nose.
-        self.declare_parameter("body_yaw_offset", math.pi)
+        self.declare_parameter("body_yaw_offset", 0.0)
         self.declare_parameter("auto_arm", True)
         self.declare_parameter("use_bspline", True)
         self.declare_parameter("bspline_sample_count", 200)
@@ -46,10 +40,6 @@ class ModelPredictiveControlDroneFollower(Node):
             't_step': 0.1,
             'state_discretization': 'collocation',
             'store_full_solution': True,
-            # The solve must finish well inside the 0.1 s control period;
-            # otherwise it blocks the executor and the PX4 setpoint stream.
-            # do-mpc warm-starts each solve from the previous solution, so
-            # a capped iteration count still converges over a few steps.
             'nlpsol_opts': {
                 'ipopt.max_iter': 100,
                 'ipopt.max_cpu_time': 0.08,
@@ -73,10 +63,22 @@ class ModelPredictiveControlDroneFollower(Node):
         self.has_path = False
         self.initial_guess_set = False
 
+        self.latest_body_command = (0.0, 0.0, 0.0)
+        self.latest_attitude = VehicleAttitude()
+        self.latest_attitude.q = [1.0, 0.0, 0.0, 0.0]
+        self.latest_vehicle_status = VehicleStatus()
+        self.last_nav_state = None
+        self.offboard_requested = False
+        self.setpoint_count = 0
+        self.last_mode_command_us = 0
+        self.last_arm_command_us = 0
+        self.command_interval_us = 200_000
+
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
         self.step_timer = self.create_timer(0.1, self.step)
+        self.setpoint_timer = self.create_timer(0.05, self.publish_setpoint)
 
         self.drone_path_subscriber = self.create_subscription(
             msg_type=Path,
@@ -90,19 +92,6 @@ class ModelPredictiveControlDroneFollower(Node):
             callback=self.bspline_callback,
             qos_profile=qos_profile_sensor_data,
         )
-
-        # Latest MPC output in ROS body frame (FLU): forward, up, yaw rate (CCW).
-        self.latest_body_command = (0.0, 0.0, 0.0)
-        self.latest_attitude = VehicleAttitude()
-        self.latest_attitude.q = [1.0, 0.0, 0.0, 0.0]
-        self.latest_vehicle_status = VehicleStatus()
-        self.last_nav_state = None
-        self.offboard_requested = False
-        self.setpoint_count = 0
-        self.last_mode_command_us = 0
-        self.last_arm_command_us = 0
-        self.command_interval_us = 200_000
-
         self.offboard_control_mode_publisher = self.create_publisher(
             OffboardControlMode,
             "/fmu/in/offboard_control_mode",
@@ -130,9 +119,6 @@ class ModelPredictiveControlDroneFollower(Node):
             self.vehicle_status_callback,
             qos_profile_sensor_data,
         )
-        # PX4 requires a continuous offboard setpoint stream (> 2 Hz).
-        self.setpoint_timer = self.create_timer(0.05, self.publish_setpoint)
-
 
     def drone_path_callback(self, msg):
         if self.get_parameter("use_bspline").get_parameter_value().bool_value:
@@ -177,7 +163,6 @@ class ModelPredictiveControlDroneFollower(Node):
             valid_samples = np.isfinite(sampled_points).all(axis=1)
             self.waypoints = sampled_points[valid_samples]
         else:
-            # Fallback when knot vector is unavailable or malformed.
             self.waypoints = control_points
 
         self.update_path()
@@ -236,9 +221,6 @@ class ModelPredictiveControlDroneFollower(Node):
         self.model.set_rhs('py', vx * sin(psi))
         self.model.set_rhs('pz', vz)
         self.model.set_rhs('psi', omega)
-        # sqrt(vx^2 + vz^2) has an infinite gradient at zero speed, which is
-        # exactly where the initial guess starts; the small epsilon keeps the
-        # NLP smooth.
         self.model.set_rhs('s', sqrt(vx ** 2 + vz ** 2 + 1e-3))
 
         px_path = path_x(s)
@@ -271,7 +253,7 @@ class ModelPredictiveControlDroneFollower(Node):
 
         mterm = (
                 50.0 * pos_error +
-                75.0 * heading_error_sq -
+                25.0 * heading_error_sq -
                 5.0 * s
         )
 
@@ -292,8 +274,6 @@ class ModelPredictiveControlDroneFollower(Node):
 
         self.mpc.setup()
 
-        # The initial guess needs a valid drone state; if TF is not available
-        # yet, it is set on the first step() where the state can be looked up.
         self.initial_guess_set = False
         self._try_set_initial_guess(self._get_drone_state())
 
@@ -359,8 +339,6 @@ class ModelPredictiveControlDroneFollower(Node):
         psi = np.arctan2(2.0 * (orientation.w * orientation.z + orientation.x * orientation.y),
                      1.0 - 2.0 * (orientation.y ** 2 + orientation.z ** 2))
 
-        # The MPC's vx is sent to PX4 as "forward along PX4's nose", so psi
-        # must be the nose heading, not the drone_frame x-axis heading.
         offset = self.get_parameter("body_yaw_offset").get_parameter_value().double_value
         psi = math.atan2(math.sin(psi + offset), math.cos(psi + offset))
 
@@ -418,6 +396,7 @@ class ModelPredictiveControlDroneFollower(Node):
         offboard_control_mode.acceleration = False
         offboard_control_mode.attitude = False
         offboard_control_mode.body_rate = False
+        
         self.offboard_control_mode_publisher.publish(offboard_control_mode)
         self.setpoint_count += 1
 
@@ -425,7 +404,6 @@ class ModelPredictiveControlDroneFollower(Node):
         if not self.has_path:
             vx, vz, yaw_rate = 0.0, 0.0, 0.0
 
-        # MPC outputs ROS body frame (FLU, z up, CCW yaw); PX4 body frame is FRD.
         body_velocity = (vx, 0.0, -vz)
         ned_velocity = self.body_to_ned_velocity(body_velocity)
 
@@ -436,7 +414,7 @@ class ModelPredictiveControlDroneFollower(Node):
         setpoint.acceleration = [math.nan, math.nan, math.nan]
         setpoint.jerk = [math.nan, math.nan, math.nan]
         setpoint.yaw = math.nan
-        setpoint.yawspeed = -yaw_rate
+        setpoint.yawspeed = -yaw_rate 
         self.trajectory_setpoint_publisher.publish(setpoint)
 
         if not self.offboard_requested or self.setpoint_count < 40:
