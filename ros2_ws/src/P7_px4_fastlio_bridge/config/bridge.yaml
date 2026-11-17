@@ -1,0 +1,21 @@
+px4_odometry_bridge:
+  ros__parameters:
+    odom_topic: /Odometry_base_link
+    px4_odom_topic: /fmu/in/vehicle_visual_odometry
+    # Any /fmu/out topic of type VehicleAttitude that PX4 publishes at a
+    # steady rate. Its `timestamp` is PX4 boot time (Zenoh passes it through).
+    px4_clock_topic: /fmu/out/vehicle_attitude
+
+    publish_rate_hz: 50.0        # 0 = forward every message
+    send_velocity: true          # body-FRD velocity from FAST-LIO
+
+    # Only used by EKF2 when EKF2_EV_NOISE_MD = 0 (use message variances).
+    position_std_m: 0.05
+    attitude_std_rad: 0.05
+    velocity_std_mps: 0.10
+
+    sync_window_s: 5.0           # window for min-latency offset estimate
+    px4_clock_timeout_s: 1.0     # stop publishing if PX4 clock ref goes stale
+    stamp_jump_threshold_s: 1.0  # odom stamp jump that resets the sync
+
+    publish_debug_pose: true     # ~/pose for RViz

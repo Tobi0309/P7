@@ -1,0 +1,56 @@
+# PX4 parameters for fusing FAST-LIO odometry as External Vision in EKF2.
+# Paste into the MAVLink console (QGC > Analyze Tools > MAVLink Console)
+# or the nsh shell, then reboot the flight controller.
+# Target: PX4 main / v1.16+ with the Zenoh middleware.
+
+# ---------------------------------------------------------------- Zenoh
+# Enable the Zenoh client (if your build exposes this param) and make sure the
+# domain matches ROS_DOMAIN_ID on the Jetson (default 0).
+param set ZENOH_ENABLE 1
+param set ZENOH_DOMAIN_ID 0
+# Make sure uXRCE-DDS is not also running on the same link.
+param set UXRCE_DDS_CFG 0
+# Router address (run once, stored on the SD card):
+#   zenoh config net client tcp/192.168.10.232:7447
+# Check that /fmu/in/vehicle_visual_odometry is in the subscriber list:
+#   zenoh status
+
+# ---------------------------------------------------------------- EKF2 EV
+# Bits: 0 = horizontal position, 1 = vertical position, 2 = velocity, 3 = yaw
+# 15 = all. Use 11 (no velocity) if send_velocity is false in the bridge.
+param set EKF2_EV_CTRL 15
+# Height reference: 3 = Vision
+param set EKF2_HGT_REF 3
+
+# Measurement delay [ms] NOT already covered by timestamp_sample, i.e. the
+# FAST-LIO pipeline latency (sensor sample -> odometry out). Start at 10
+# and tune from a flight log (compare EV yaw/position with EKF output).
+param set EKF2_EV_DELAY 10
+
+# Noise: 1 = use the parameters below (easier to tune),
+#        0 = use the variances sent in the message.
+param set EKF2_EV_NOISE_MD 1
+param set EKF2_EVP_NOISE 0.05
+param set EKF2_EVV_NOISE 0.10
+param set EKF2_EVA_NOISE 0.05
+param set EKF2_EV_GATE 5
+param set EKF2_EV_QMIN 0
+
+# The bridge already sends the pose of base_link. If base_link is the flight
+# controller / body origin, the sensor offset is zero.
+param set EKF2_EV_POS_X 0
+param set EKF2_EV_POS_Y 0
+param set EKF2_EV_POS_Z 0
+
+# ------------------------------------------------- other aiding sources
+# Indoor / GPS-denied: rely on vision only.
+param set EKF2_GPS_CTRL 0
+# Barometer is disturbed by prop wash indoors; vision provides height.
+param set EKF2_BARO_CTRL 0
+# Magnetometer: 5 = None (yaw comes from vision). Keep the default if you
+# fly outdoors with a clean mag and want a north-referenced heading.
+param set EKF2_MAG_TYPE 5
+# Optional: disable range finder fusion unless you have one.
+param set EKF2_RNG_CTRL 0
+
+param save
