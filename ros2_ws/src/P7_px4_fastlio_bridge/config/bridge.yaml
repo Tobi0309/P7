@@ -1,4 +1,5 @@
 px4_odometry_bridge:
+    # NOTE: launch with use_sim_time:=true in simulation (see launch file).
   ros__parameters:
     odom_topic: /Odometry_base_link
     px4_odom_topic: /fmu/in/vehicle_visual_odometry
@@ -18,4 +19,6 @@ px4_odometry_bridge:
     px4_clock_timeout_s: 1.0     # stop publishing if PX4 clock ref goes stale
     stamp_jump_threshold_s: 1.0  # odom stamp jump that resets the sync
 
-    publish_debug_pose: true     # ~/pose for RViz
+    publish_debug_pose: true     # ~/px4_pose (exact pose sent to PX4) for RViz
+    px4_frame_id: px4_frd        # static TF <odom frame> -> px4_frd is broadcast
+    px4_frame_yaw_deg: 0.0      # yaw of px4_frd about the odom frame's Z (up), RViz only

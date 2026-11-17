@@ -20,12 +20,17 @@
     </visual>
   </link>
 
-  <!-- IMU frame to aircraft geometric centre -->
+  <!-- IMU frame to aircraft geometric centre.
+       Inverse of lidar_receiver_joint combined with the Mid-360 IMU offset
+       (0.011, 0.02329, -0.04412) in the LiDAR frame.
+       Yaw corrected from +90 to -90 deg (2026-11-17): the old value put
+       base_link 180 deg off in yaw from the PX4 body frame / Isaac ground
+       truth (roll and pitch had opposite sign to the PX4 IMU in flight). -->
   <joint name="base_link_joint" type="fixed">
     <parent link="body_imu"/>
     <child link="base_link"/>
-    <origin xyz="-0.011 -0.06863 -0.01721"
-            rpy="3.141592653589 -0.392699082 1.57079633"/>
+    <origin xyz="-0.011 0.052137 0.032813"
+            rpy="3.141592653589 0.392699082 -1.57079633"/>
   </joint>
 
   <!-- LiDAR receiver frame -->
@@ -36,7 +41,7 @@
     <parent link="base_link"/>
     <child link="lidar_receiver"/>
     <origin xyz="0.065358673 0.0 -0.039310665"
-            rpy="2.748893572 0.0 1.570796330"/>
+            rpy="2.748893572 0.0 -1.570796330"/>
   </joint>
 
   <!-- RealSense camera -->
