@@ -8,6 +8,7 @@ import numpy as np
 from rclpy.qos import qos_profile_sensor_data
 from ament_index_python.packages import get_package_share_directory
 from vision_msgs.msg import Detection2DArray, Detection2D, ObjectHypothesisWithPose 
+from std_srvs.srv import Trigger
 
 
 
@@ -25,11 +26,17 @@ class YOLO_Human_Detection(Node):
         self.declare_parameter('conf', 0.25) #Confidence threshold
         self.declare_parameter('imgsz', 640) #Image size for inference
         self.declare_parameter('device', '0')   # '0' for GPU, 'cpu' for CPU #WE USE GPU
+        self.declare_parameter('min_detections', 10) #Minimum number of consecutive detections to trigger an action
+        self.detectionCount = 0  #Counter for consecutive detections
+        self.stop_flag = False #Flag to indicate if the drone should stop
+
+
         
         #Store values of parameters in this node
         self.conf = self.get_parameter('conf').value
         self.imgsz = self.get_parameter('imgsz').value
         self.device = self.get_parameter('device').value
+        self.min_detections = self.get_parameter('min_detections').value
         model_path = self.get_parameter('model_path').get_parameter_value().string_value
         
         self.bridge = CvBridge()
@@ -51,7 +58,9 @@ class YOLO_Human_Detection(Node):
         self.det_pub = self.create_publisher(
             Detection2DArray, self.get_parameter('detections_topic').value, 10)
 
-
+        #Create a service to stop the drone when a human is detected
+        self.stop_srv = self.create_service(
+            Trigger, '/drone/stop', self._stop_service_callback)
 
 
 
@@ -102,9 +111,24 @@ class YOLO_Human_Detection(Node):
         n = len(result.boxes)
         self.get_logger().info(f'{n} detection(s)', throttle_duration_sec=2.0)
 
+        if n > 0:
+            self.detectionCount += 1
+        else:
+            self.detectionCount = 0
 
+        if self.detectionCount >= self.min_detections:
+            self.get_logger().info('Human detected. Stopping the drone.', throttle_duration_sec=2.0)
+            self.stop_flag = True
 
-    
+    def _stop_service_callback(self, request, response):
+        response.success = self.stop_flag #bool der bliver true hvis vi har set menneske i 10 frames
+
+        if self.stop_flag:
+            response.message = 'Human detected. Stopping the drone.'    
+        else:
+            response.message = 'No human detected. Drone can continue flying.'
+        return response
+
 
 def main(args=None):
     rclpy.init(args=args)
