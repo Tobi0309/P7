@@ -5,6 +5,12 @@
 // px4_msgs/VehicleOdometry on /fmu/in/vehicle_visual_odometry in the
 // FRD world frame / FRD body frame that EKF2 expects.
 //
+// PX4's body x-axis need not coincide with base_link's: the parameter
+// body_yaw_offset_deg is the yaw of PX4's body frame relative to base_link
+// (about base_link's Z/up, counter-clockwise positive). Attitude, body
+// velocity and body rates are expressed in that rotated frame; the position
+// is still that of the base_link origin.
+//
 // ---------------------------------------------------------------------------
 // Time synchronisation
 // ---------------------------------------------------------------------------
@@ -144,6 +150,15 @@ public:
         px4_frame_yaw_rad_ =
             declare_parameter<double>("px4_frame_yaw_deg", 90.0) * M_PI / 180.0;
 
+        // Orientation of PX4's FRD body frame in base_link: yaw about base_link
+        // Z (FLU), then the 180 deg X flip from FLU to FRD.
+        const double body_yaw_offset_deg =
+            declare_parameter<double>("body_yaw_offset_deg", 0.0);
+        q_base_frd_ =
+            (Eigen::AngleAxisd(body_yaw_offset_deg * M_PI / 180.0, Eigen::Vector3d::UnitZ()) *
+             Eigen::AngleAxisd(M_PI, Eigen::Vector3d::UnitX()))
+                .normalized();
+
         odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
             odom_topic, rclcpp::SensorDataQoS(),
             [this](nav_msgs::msg::Odometry::ConstSharedPtr msg) { odomCallback(*msg); });
@@ -164,9 +179,10 @@ public:
         status_timer_ = create_wall_timer(std::chrono::seconds(2), [this]() { logStatus(); });
 
         RCLCPP_INFO(get_logger(),
-                    "Bridge %s -> %s (clock ref: %s, %.0f Hz, velocity %s)",
+                    "Bridge %s -> %s (clock ref: %s, %.0f Hz, velocity %s, "
+                    "PX4 body yaw offset %.1f deg)",
                     odom_topic.c_str(), px4_odom_topic.c_str(), px4_clock_topic.c_str(),
-                    rate_hz, send_velocity_ ? "on" : "off");
+                    rate_hz, send_velocity_ ? "on" : "off", body_yaw_offset_deg);
     }
 
 private:
@@ -325,13 +341,13 @@ private:
         }
         q_wb.normalize();
 
-        // World Z-up (FLU at start) -> world FRD, and body FLU -> body FRD
-        // are both a 180 deg rotation about X.
+        // World Z-up (FLU at start) -> world FRD is a 180 deg rotation about X.
+        // Body: base_link -> PX4 body FRD is q_base_frd_ (yaw offset + X flip).
         static const Eigen::Quaterniond q_x180(
             Eigen::AngleAxisd(M_PI, Eigen::Vector3d::UnitX()));
 
         const Eigen::Vector3d p_frd = q_x180 * p_w;
-        const Eigen::Quaterniond q_frd = (q_x180 * q_wb * q_x180).normalized();
+        const Eigen::Quaterniond q_frd = (q_x180 * q_wb * q_base_frd_).normalized();
 
         px4_msgs::msg::VehicleOdometry out{};
         out.timestamp = static_cast<uint64_t>(px4_now_us);  // overwritten by Zenoh anyway
@@ -346,17 +362,23 @@ private:
 
         const float nan = std::numeric_limits<float>::quiet_NaN();
 
-        // Twist in /Odometry_base_link is expressed in body FLU.
-        const auto &v = msg.twist.twist.linear;
-        const auto &w = msg.twist.twist.angular;
-        const bool vel_ok = send_velocity_ &&
-                            std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
+        // Twist in /Odometry_base_link is expressed in base_link FLU; rotate
+        // it into PX4's body FRD frame.
+        const Eigen::Vector3d v_base(msg.twist.twist.linear.x,
+                                     msg.twist.twist.linear.y,
+                                     msg.twist.twist.linear.z);
+        const Eigen::Vector3d w_base(msg.twist.twist.angular.x,
+                                     msg.twist.twist.angular.y,
+                                     msg.twist.twist.angular.z);
+        const Eigen::Vector3d v = q_base_frd_.conjugate() * v_base;
+        const Eigen::Vector3d w = q_base_frd_.conjugate() * w_base;
+        const bool vel_ok = send_velocity_ && v.allFinite();
 
         if (vel_ok)
         {
             out.velocity_frame = px4_msgs::msg::VehicleOdometry::VELOCITY_FRAME_BODY_FRD;
-            out.velocity = {static_cast<float>(v.x), static_cast<float>(-v.y),
-                            static_cast<float>(-v.z)};
+            out.velocity = {static_cast<float>(v.x()), static_cast<float>(v.y()),
+                            static_cast<float>(v.z())};
             out.velocity_variance = {vel_var_, vel_var_, vel_var_};
         }
         else
@@ -366,10 +388,10 @@ private:
             out.velocity_variance = {nan, nan, nan};
         }
 
-        if (std::isfinite(w.x) && std::isfinite(w.y) && std::isfinite(w.z))
+        if (w.allFinite())
         {
-            out.angular_velocity = {static_cast<float>(w.x), static_cast<float>(-w.y),
-                                    static_cast<float>(-w.z)};
+            out.angular_velocity = {static_cast<float>(w.x()), static_cast<float>(w.y()),
+                                    static_cast<float>(w.z())};
         }
         else
         {
@@ -446,6 +468,9 @@ private:
     std::string px4_frame_id_{"px4_frd"};
     double px4_frame_yaw_rad_{M_PI / 2.0};
     std::string static_tf_parent_;
+
+    // Orientation of PX4's body FRD frame expressed in base_link.
+    Eigen::Quaterniond q_base_frd_{Eigen::AngleAxisd(M_PI, Eigen::Vector3d::UnitX())};
 
     rclcpp::TimerBase::SharedPtr status_timer_;
 
