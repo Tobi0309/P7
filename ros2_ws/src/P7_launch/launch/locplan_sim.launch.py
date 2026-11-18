@@ -78,9 +78,7 @@ def generate_launch_description():
         parameters=[{
             'use_sim_time': True,
             'position_command_topic': '/drone_0_planning/pos_cmd',
-            'ego_odometry_topic': '/Odometry_base_link',
             'px4_odometry_topic': '/fmu/out/vehicle_odometry',
-            'alignment_mode': 'paired_pose',
         }],
     )
 

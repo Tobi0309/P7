@@ -1,9 +1,7 @@
 import math
 import time
-from collections import deque
 
 import rclpy
-from nav_msgs.msg import Odometry
 from px4_msgs.msg import (
     OffboardControlMode,
     TrajectorySetpoint,
@@ -17,20 +15,15 @@ from quadrotor_msgs.msg import PositionCommand
 
 
 class PosCmdToPx4(Node):
-    """Transform EGO setpoints into PX4 NED using paired live odometry."""
+    """Convert camera_init position commands to PX4 FRD setpoints."""
 
     def __init__(self):
         super().__init__("pos_cmd_to_px4")
 
         self.declare_parameter("position_command_topic", "/drone_0_planning/pos_cmd")
-        self.declare_parameter("ego_odometry_topic", "/Odometry_base_link")
         self.declare_parameter("px4_odometry_topic", "/fmu/out/vehicle_odometry")
-        self.declare_parameter("alignment_mode", "paired_pose")
-        self.declare_parameter("max_pair_skew_sec", 0.05)
-        self.declare_parameter("max_alignment_age_sec", 0.25)
-        self.max_pair_skew_sec = float(self.get_parameter("max_pair_skew_sec").value)
-        self.max_alignment_age_sec = float(self.get_parameter("max_alignment_age_sec").value)
-        self.alignment_mode = str(self.get_parameter("alignment_mode").value)
+        self.declare_parameter("px4_odom_timeout_sec", 0.25)
+        self.px4_odom_timeout_sec = float(self.get_parameter("px4_odom_timeout_sec").value)
 
         self.latest_position_command = None
         self.latest_vehicle_status = VehicleStatus()
@@ -39,9 +32,7 @@ class PosCmdToPx4(Node):
         self.last_arm_command_us = 0
         self.command_interval_us = 200_000
         self.offboard_requested = False
-        self.ego_poses = deque(maxlen=40)
-        self.px4_poses = deque(maxlen=40)
-        self.alignment = None
+        self.last_px4_odom_wall_time = None
         self.px4_reset_counter = None
         self.px4_time_anchor = None
         self.last_alignment_warning = 0.0
@@ -62,12 +53,6 @@ class PosCmdToPx4(Node):
             self.position_command_callback,
             10,
         )
-        self.ego_odometry_subscription = self.create_subscription(
-            Odometry,
-            str(self.get_parameter("ego_odometry_topic").value),
-            self.ego_odometry_callback,
-            qos_profile_sensor_data,
-        )
         self.px4_odometry_subscription = self.create_subscription(
             VehicleOdometry,
             str(self.get_parameter("px4_odometry_topic").value),
@@ -86,13 +71,6 @@ class PosCmdToPx4(Node):
         self.latest_position_command = message
         self.offboard_requested = True
 
-    def ego_odometry_callback(self, message: Odometry):
-        pose = self.pose_from_ego(message)
-        if pose is None:
-            return
-        self.ego_poses.append((time.monotonic(), message.header.frame_id, pose))
-        self.update_alignment()
-
     def px4_odometry_callback(self, message: VehicleOdometry):
         if message.pose_frame != VehicleOdometry.POSE_FRAME_NED:
             self.warn_alignment(
@@ -103,108 +81,30 @@ class PosCmdToPx4(Node):
             self.px4_reset_counter = message.reset_counter
         elif message.reset_counter != self.px4_reset_counter:
             self.px4_reset_counter = message.reset_counter
-            self.alignment = None
             self.get_logger().warning(
-                "PX4 odometry reset detected; recalibrating frame alignment"
+                "PX4 odometry reset detected; resetting PX4 timestamp anchor"
             )
-        pose = self.pose_from_px4(message)
-        if pose is None:
-            self.warn_alignment("PX4 odometry has an invalid pose")
-            return
         ros_time_us = self.get_clock().now().nanoseconds // 1000
         self.px4_time_anchor = (ros_time_us, int(message.timestamp))
-        self.px4_poses.append((time.monotonic(), pose))
-        self.update_alignment()
-
-    @staticmethod
-    def pose_from_ego(message):
-        p = message.pose.pose.position
-        q = message.pose.pose.orientation
-        position = (float(p.x), float(p.y), float(p.z))
-        quaternion = (float(q.w), float(q.x), float(q.y), float(q.z))
-        return PosCmdToPx4.normalized_pose(position, quaternion)
-
-    @staticmethod
-    def pose_from_px4(message):
-        position = tuple(float(value) for value in message.position)
-        quaternion = tuple(float(value) for value in message.q)
-        return PosCmdToPx4.normalized_pose(position, quaternion)
-
-    @staticmethod
-    def normalized_pose(position, quaternion):
-        if not all(math.isfinite(value) for value in position + quaternion):
-            return None
-        norm = math.sqrt(sum(value * value for value in quaternion))
-        if norm < 1e-6:
-            return None
-        return position, tuple(value / norm for value in quaternion)
-
-    def update_alignment(self):
-        # The transform between odometry frames is fixed. Re-estimating it
-        # while PX4 tracks a recorded EGO trajectory makes the setpoint move
-        # with the difference between the two vehicles' motion.
-        if self.alignment is not None:
-            return
-        if not self.ego_poses or not self.px4_poses:
-            return
-        ego_time, ego_frame, ego_pose = self.ego_poses[-1]
-        px4_time, px4_pose = self.px4_poses[-1]
-        if abs(ego_time - px4_time) > self.max_pair_skew_sec:
-            return
-
-        ego_position, ego_quaternion = ego_pose
-        px4_position, px4_quaternion = px4_pose
-        if self.alignment_mode == "fixed_180_z":
-            # Test mode: assume camera_init and PX4 NED differ by a half-turn
-            # around Z. Keep a translation from the paired positions so their
-            # origins align at calibration time.
-            q_align = (0.0, 0.0, 0.0, 1.0)
-        elif self.alignment_mode == "paired_pose":
-            # EGO odometry uses base_link FLU axes. PX4 uses body FRD axes.
-            q_flu_frd = (0.0, 1.0, 0.0, 0.0)
-            q_align = self.quaternion_multiply(
-                self.quaternion_multiply(px4_quaternion, q_flu_frd),
-                self.quaternion_conjugate(ego_quaternion),
-            )
-        else:
-            self.warn_alignment(
-                "Unknown alignment_mode '%s'; use paired_pose or fixed_180_z"
-                % self.alignment_mode
-            )
-            return
-        rotated_ego_position = self.rotate_vector(q_align, ego_position)
-        translation = tuple(
-            px4_position[i] - rotated_ego_position[i] for i in range(3)
-        )
-        self.alignment = (q_align, translation, ego_frame, max(ego_time, px4_time))
-        self.get_logger().info(
-            "Locked EGO-to-PX4 alignment mode=%s; translation=(%.3f, %.3f, %.3f) m"
-            % ((self.alignment_mode,) + translation)
-        )
+        self.last_px4_odom_wall_time = time.monotonic()
 
     def publish_setpoint(self):
         if self.latest_position_command is None:
             return
-        if not self.alignment or self.px4_time_anchor is None:
-            self.warn_alignment("Waiting for paired odometry and PX4 clock")
+        if self.px4_time_anchor is None:
+            self.warn_alignment("Waiting for PX4 odometry clock")
             return
 
-        q_align, translation, ego_frame, _alignment_time = self.alignment
-        now = time.monotonic()
-        if (
-            not self.ego_poses
-            or not self.px4_poses
-            or now - self.ego_poses[-1][0] > self.max_alignment_age_sec
-            or now - self.px4_poses[-1][0] > self.max_alignment_age_sec
-        ):
-            self.warn_alignment("Odometry alignment is stale; withholding setpoints")
+        if (self.last_px4_odom_wall_time is None or
+                time.monotonic() - self.last_px4_odom_wall_time > self.px4_odom_timeout_sec):
+            self.warn_alignment("PX4 odometry is stale; withholding setpoints")
             return
 
         command = self.latest_position_command
-        if command.header.frame_id and command.header.frame_id != ego_frame:
+        if command.header.frame_id != "camera_init":
             self.warn_alignment(
-                "Command frame '%s' does not match EGO odometry frame '%s'"
-                % (command.header.frame_id, ego_frame)
+                "Command frame '%s' is not camera_init; withholding setpoints"
+                % command.header.frame_id
             )
             return
 
@@ -212,9 +112,13 @@ class PosCmdToPx4(Node):
         if timestamp is None:
             self.warn_alignment("Waiting for a valid PX4 timestamp anchor")
             return
-        position = (command.position.x, command.position.y, command.position.z)
-        velocity = (command.velocity.x, command.velocity.y, command.velocity.z)
-        acceleration = (
+        position = self.camera_init_to_px4_frd(
+            command.position.x, command.position.y, command.position.z
+        )
+        velocity = self.camera_init_to_px4_frd(
+            command.velocity.x, command.velocity.y, command.velocity.z
+        )
+        acceleration = self.camera_init_to_px4_frd(
             command.acceleration.x,
             command.acceleration.y,
             command.acceleration.z,
@@ -223,26 +127,27 @@ class PosCmdToPx4(Node):
         use_acceleration = any(abs(value) > 1e-6 for value in acceleration)
 
         mode = OffboardControlMode()
-        mode.timestamp = timestamp
         mode.position = True
-        mode.velocity = use_velocity
-        mode.acceleration = use_acceleration
+        mode.velocity = True
+        mode.acceleration = True
         mode.attitude = False
         mode.body_rate = False
+        mode.thrust_and_torque = False
+        mode.direct_actuator = False
         self.offboard_control_mode_publisher.publish(mode)
 
         setpoint = TrajectorySetpoint()
         setpoint.timestamp = timestamp
-        setpoint.position = self.flu_to_frd(command.position.x, command.position.y, command.position.z)
+        setpoint.position = [float(value) for value in position]
         setpoint.velocity = (
-            self.flu_to_frd(*velocity_vector) if use_velocity else [math.nan, math.nan, math.nan]
+            [float(value) for value in velocity] if use_velocity else [math.nan, math.nan, math.nan]
         )
         setpoint.acceleration = (
-            self.flu_to_frd(*acceleration_vector) if use_acceleration else [math.nan, math.nan, math.nan]
+            [float(value) for value in acceleration] if use_acceleration else [math.nan, math.nan, math.nan]
         )
         setpoint.jerk = [math.nan, math.nan, math.nan]
-        setpoint.yaw = self.flu_yaw_to_frd(command.yaw)
-        setpoint.yawspeed = self.flu_yaw_rate_to_frd(command.yaw_dot)
+        setpoint.yaw = self.camera_init_yaw_to_px4_frd(command.yaw)
+        setpoint.yawspeed = self.camera_init_yaw_rate_to_px4_frd(command.yaw_dot)
         self.trajectory_setpoint_publisher.publish(setpoint)
 
         self.publish_offboard_commands(timestamp)
@@ -294,6 +199,12 @@ class PosCmdToPx4(Node):
         elapsed_us = max(0, ros_now_us - ros_anchor_us)
         return px4_anchor_us + elapsed_us
 
+    def warn_alignment(self, message: str):
+        now = time.monotonic()
+        if now - self.last_alignment_warning >= 2.0:
+            self.get_logger().warning(message)
+            self.last_alignment_warning = now
+
     def publish_vehicle_command(self, command: int, timestamp: int, **parameters: float):
         message = VehicleCommand()
         message.timestamp = timestamp
@@ -309,22 +220,19 @@ class PosCmdToPx4(Node):
         self.vehicle_command_publisher.publish(message)
 
     @staticmethod
-    def flu_to_frd(x: float, y: float, z: float):
-        # Planner commands are in camera_init (z-up), computed from
-        # /Odometry_base_link. The PX4 odometry bridge feeds PX4 that same
-        # base_link odometry with camera_init rotated 180 deg about X
-        # (z-down) and base_link FLU -> FRD, so PX4's local frame is
-        # camera_init with y and z negated.
+    def camera_init_to_px4_frd(x: float, y: float, z: float):
+        # camera_init -> px4_frd is a 180 degree rotation about X.
         return [float(x), float(-y), float(-z)]
 
     @staticmethod
-    def flu_yaw_to_frd(yaw: float):
-        # 180 deg rotation about X keeps the heading reference (x axis) but
-        # flips the yaw direction: FLU yaw is CCW-positive, FRD is CW-positive.
-        return -float(yaw)
+    def camera_init_yaw_to_px4_frd(yaw: float):
+        # The vehicle's forward axis is opposite the planner's yaw-zero axis.
+        # Flip yaw handedness for FRD, then rotate the heading by 180 degrees.
+        px4_yaw = -float(yaw) + math.pi
+        return math.atan2(math.sin(px4_yaw), math.cos(px4_yaw))
 
     @staticmethod
-    def flu_yaw_rate_to_frd(yaw_rate: float):
+    def camera_init_yaw_rate_to_px4_frd(yaw_rate: float):
         return -float(yaw_rate)
 
 def main(args=None):

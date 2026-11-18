@@ -205,6 +205,8 @@ void cmdCallback(rclcpp::Clock::SharedPtr clock)
   time_last = time_now;
 
   cmd.header.stamp = time_now;
+  // Publish the trajectory sample in its planning frame. The PX4 command
+  // converter handles the camera_init -> px4_frd axis conversion.
   cmd.header.frame_id = "camera_init";
   cmd.trajectory_flag = quadrotor_msgs::msg::PositionCommand::TRAJECTORY_STATUS_READY;
   cmd.trajectory_id = traj_id_;
@@ -223,8 +225,6 @@ void cmdCallback(rclcpp::Clock::SharedPtr clock)
 
   cmd.yaw = yaw_yawdot.first;
   cmd.yaw_dot = yaw_yawdot.second;
-
-  last_yaw_ = cmd.yaw;
 
   pos_cmd_pub->publish(cmd);
 }
