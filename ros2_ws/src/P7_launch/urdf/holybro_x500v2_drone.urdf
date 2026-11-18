@@ -6,7 +6,7 @@
   </material>
 
   <!-- IMU-propagated reference frame -->
-  <link name="body_imu"/>
+  <link name="body"/>
 
   <!-- Aircraft geometric centre -->
   <link name="base_link">
@@ -22,7 +22,7 @@
 
   <!-- IMU frame to aircraft geometric centre -->
   <joint name="base_link_joint" type="fixed">
-    <parent link="body_imu"/>
+    <parent link="body"/>
     <child link="base_link"/>
     <origin xyz="-0.011 -0.06863 -0.01721"
             rpy="3.141592653589 -0.392699082 1.57079633"/>

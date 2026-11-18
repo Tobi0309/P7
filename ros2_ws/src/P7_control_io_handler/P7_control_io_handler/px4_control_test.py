@@ -106,16 +106,16 @@ class PosCmdToPx4(Node):
 
         setpoint = TrajectorySetpoint()
         setpoint.timestamp = timestamp
-        setpoint.position = self.enu_to_ned(command.position.x, command.position.y, command.position.z)
+        setpoint.position = self.flu_to_frd(command.position.x, command.position.y, command.position.z)
         setpoint.velocity = (
-            self.enu_to_ned(*velocity_vector) if use_velocity else [math.nan, math.nan, math.nan]
+            self.flu_to_frd(*velocity_vector) if use_velocity else [math.nan, math.nan, math.nan]
         )
         setpoint.acceleration = (
-            self.enu_to_ned(*acceleration_vector) if use_acceleration else [math.nan, math.nan, math.nan]
+            self.flu_to_frd(*acceleration_vector) if use_acceleration else [math.nan, math.nan, math.nan]
         )
         setpoint.jerk = [math.nan, math.nan, math.nan]
-        setpoint.yaw = self.enu_yaw_to_ned(command.yaw)
-        setpoint.yawspeed = self.enu_yaw_rate_to_ned(command.yaw_dot)
+        setpoint.yaw = self.flu_yaw_to_frd(command.yaw)
+        setpoint.yawspeed = self.flu_yaw_rate_to_frd(command.yaw_dot)
         self.trajectory_setpoint_publisher.publish(setpoint)
 
         if not self.offboard_requested:
@@ -159,20 +159,23 @@ class PosCmdToPx4(Node):
         self.vehicle_command_publisher.publish(message)
 
     @staticmethod
-    def enu_to_ned(x: float, y: float, z: float):
-        # Planner/world commands are treated as ENU (x=east, y=north, z=up),
-        # while PX4 TrajectorySetpoint expects NED (x=north, y=east, z=down).
-        return [float(y), float(x), float(-z)]
+    def flu_to_frd(x: float, y: float, z: float):
+        # Planner commands are in camera_init (z-up), computed from
+        # /Odometry_base_link. The PX4 odometry bridge feeds PX4 that same
+        # base_link odometry with camera_init rotated 180 deg about X
+        # (z-down) and base_link FLU -> FRD, so PX4's local frame is
+        # camera_init with y and z negated.
+        return [float(x), float(-y), float(-z)]
 
     @staticmethod
-    def enu_yaw_to_ned(yaw: float):
-        # ENU yaw is CCW-positive; PX4 NED yaw is opposite in sign.
+    def flu_yaw_to_frd(yaw: float):
+        # 180 deg rotation about X keeps the heading reference (x axis) but
+        # flips the yaw direction: FLU yaw is CCW-positive, FRD is CW-positive.
         return -float(yaw)
 
     @staticmethod
-    def enu_yaw_rate_to_ned(yaw_rate: float):
+    def flu_yaw_rate_to_frd(yaw_rate: float):
         return -float(yaw_rate)
-
 
 def main(args=None):
     rclpy.init(args=args)

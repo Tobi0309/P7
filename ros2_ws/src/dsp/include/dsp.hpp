@@ -3,6 +3,7 @@
 
 #include "rclcpp/rclcpp.hpp"
 #include "geometry_msgs/msg/point.hpp"
+#include "geometry_msgs/msg/pose_stamped.hpp"
 #include "nav_msgs/msg/path.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "nav_msgs/msg/occupancy_grid.hpp"
@@ -84,7 +85,7 @@ private:
     rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr occ_map_viz_pub_;
     rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub_;
     rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr splinepath_pub_;     
-    rclcpp::Publisher<geometry_msgs::msg::Point>::SharedPtr goal_pub_;
+    rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr goal_pub_;
     rclcpp::Subscription<geometry_msgs::msg::Point>::SharedPtr set_start_sub_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr set_start_odom_sub_;
     rclcpp::Subscription<geometry_msgs::msg::Point>::SharedPtr set_goal_sub_;

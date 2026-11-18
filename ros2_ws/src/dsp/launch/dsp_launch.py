@@ -17,7 +17,7 @@ def generate_launch_description():
             parameters=[
             #   Parameter("base_link_frame_id", name_space + "/body"),
                 Parameter("base_link_frame_id", "body"),
-                Parameter("odom_frame_id", "world"),
+                Parameter("odom_frame_id", "camera_init"),
                 Parameter("use_3d", True),
             #   Parameter("map_topic", name_space + "/octomap_full"),
                 Parameter("map_topic", "/octomap_full"),                

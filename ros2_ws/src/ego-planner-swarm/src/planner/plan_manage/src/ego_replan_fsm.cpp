@@ -205,17 +205,14 @@ namespace ego_planner
       have_new_target_ = true;
 
       /*** FSM状态转换 ***/
+      // Never block or spin here: this runs inside subscription/timer callbacks that are
+      // already being executed by rclcpp::spin() (spin_some would throw, and waiting would
+      // deadlock the single-threaded executor). GEN_NEW_TRAJ / REPLAN_TRAJ pick up the new
+      // global trajectory on their next tick; other states reach it via WAIT_TARGET.
       if (exec_state_ == WAIT_TARGET)
         changeFSMExecState(GEN_NEW_TRAJ, "TRIG");
-      else
-      {
-        while (exec_state_ != EXEC_TRAJ)
-        {
-          rclcpp::spin_some(node_);
-          std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
+      else if (exec_state_ == EXEC_TRAJ)
         changeFSMExecState(REPLAN_TRAJ, "TRIG");
-      }
 
       visualization_->displayGlobalPathList(gloabl_traj, 0.1, 0);
     }
@@ -241,7 +238,7 @@ namespace ego_planner
 
     init_pt_ = odom_pos_;
 
-    Eigen::Vector3d end_wp(msg->pose.position.x, msg->pose.position.y, 1.0);
+    Eigen::Vector3d end_wp(msg->pose.position.x, msg->pose.position.y, msg->pose.position.z);
 
     planNextWaypoint(end_wp);
   }
@@ -563,6 +560,37 @@ odom_vel_ = q * vel_body;
 
     case REPLAN_TRAJ:
     {
+      // reboundReplan() refuses to plan when the start point is within 0.2 m of the goal
+      // ("Close to goal"), which used to leave the FSM stuck in REPLAN_TRAJ forever.
+      // Treat that as arrival: hold at the current commanded position and finish the goal.
+      LocalTrajData *info = &planner_manager_->local_data_;
+      double t_cur = std::min(info->duration_, (node_->get_clock()->now() - info->start_time_).seconds());
+      Eigen::Vector3d pos = info->position_traj_.evaluateDeBoorT(t_cur);
+
+      if ((pos - end_pt_).norm() < 0.2)
+      {
+        if (target_type_ == TARGET_TYPE::PRESET_TARGET && wp_id_ < waypoint_num_ - 1)
+        {
+          // Intermediate preset waypoint: move on; next tick replans toward the new end_pt_.
+          wp_id_++;
+          planNextWaypoint(wps_[wp_id_]);
+          break;
+        }
+
+        RCLCPP_INFO(node_->get_logger(), "Reached goal while replanning, holding position.");
+        callEmergencyStop(pos);
+
+        // Same goal-completion handling as EXEC_TRAJ.
+        have_target_ = false;
+        have_trigger_ = false;
+        if (target_type_ == TARGET_TYPE::PRESET_TARGET)
+        {
+          wp_id_ = 0;
+          planNextWaypoint(wps_[wp_id_]);
+        }
+        changeFSMExecState(WAIT_TARGET, "FSM");
+        break;
+      }
 
       if (planFromCurrentTraj(1))
       {
