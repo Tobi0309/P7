@@ -70,6 +70,20 @@ def generate_launch_description():
         parameters=[{'use_sim_time': True}],
     )
 
+    pos_cmd_to_px4 = Node(
+        package='P7_control_io_handler',
+        executable='pos_cmd_to_px4',
+        name='pos_cmd_to_px4',
+        output='screen',
+        parameters=[{
+            'use_sim_time': True,
+            'position_command_topic': '/drone_0_planning/pos_cmd',
+            'ego_odometry_topic': '/Odometry_base_link',
+            'px4_odometry_topic': '/fmu/out/vehicle_odometry',
+            'alignment_mode': 'paired_pose',
+        }],
+    )
+
     return LaunchDescription([
         declare_rviz_config,
         rviz,
@@ -77,4 +91,5 @@ def generate_launch_description():
         imu_propagation,
         odometry_transformer,
         goal_converter,
+        pos_cmd_to_px4,
     ])
