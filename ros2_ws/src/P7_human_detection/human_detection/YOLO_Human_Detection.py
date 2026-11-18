@@ -28,7 +28,7 @@ class YOLO_Human_Detection(Node):
         self.declare_parameter('device', '0')   # '0' for GPU, 'cpu' for CPU #WE USE GPU
         self.declare_parameter('min_detections', 10) #Minimum number of consecutive detections to trigger an action
         self.detectionCount = 0  #Counter for consecutive detections
-        self.stop_flag = False #Flag to indicate if the drone should stop
+        self.stop_request_sent = False 
 
 
         
@@ -51,16 +51,13 @@ class YOLO_Human_Detection(Node):
             qos_profile_sensor_data)
 
         #Create publisher for annotated images
-        self.pub = self.create_publisher(
-            Image, self.get_parameter('output_topic').value, 10)
+        self.pub = self.create_publisher(Image, self.get_parameter('output_topic').value, 10)
         
         #Create publisher for bounding boxes
-        self.det_pub = self.create_publisher(
-            Detection2DArray, self.get_parameter('detections_topic').value, 10)
+        self.det_pub = self.create_publisher(Detection2DArray, self.get_parameter('detections_topic').value, 10)
 
         #Create a service to stop the drone when a human is detected
-        self.stop_srv = self.create_service(
-            Trigger, '/drone/stop', self._stop_service_callback)
+        self.stop_client = self.create_client(Trigger, '/drone/stop')
 
 
 
@@ -116,18 +113,24 @@ class YOLO_Human_Detection(Node):
         else:
             self.detectionCount = 0
 
-        if self.detectionCount >= self.min_detections:
-            self.get_logger().info('Human detected. Stopping the drone.', throttle_duration_sec=2.0)
-            self.stop_flag = True
+        if (self.detectionCount >= self.min_detections) and (not self.stop_request_sent):
+            self.get_logger().info('Human detected. Requesting drone stop.', throttle_duration_sec=2.0)
+            self.send_stop_request()
 
-    def _stop_service_callback(self, request, response):
-        response.success = self.stop_flag #bool der bliver true hvis vi har set menneske i 10 frames
+    def send_stop_request(self):
+        if not self.stop_client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().error('Frontier service is not running right now(MAGNUS START DET).')
+            return
 
-        if self.stop_flag:
-            response.message = 'Human detected. Stopping the drone.'    
-        else:
-            response.message = 'No human detected. Drone can continue flying.'
-        return response
+        future = self.stop_client.call_async(Trigger.Request()) 
+        future.add_done_callback(self.magnus_response_callback)
+        self.stop_request_sent = True #Stop sending requests after the first one went through
+    
+    def magnus_response_callback(self, future):
+        response = future.result()
+        self.get_logger().info(f'Frontier server reply: {response.message}')
+
+
 
 
 def main(args=None):
