@@ -20,7 +20,7 @@ public:
           tf_listener_(tf_buffer_)
     {
         odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-            "/Odometry",
+            "/Odometry_imu",
             20,
             [this](nav_msgs::msg::Odometry::ConstSharedPtr msg)
             {
@@ -32,7 +32,7 @@ public:
 
         RCLCPP_INFO(
             get_logger(),
-            "Odometry transformer started: body -> base_link");
+            "Odometry transformer started: body_imu -> base_link");
     }
 
 private:
@@ -45,13 +45,13 @@ private:
     void odomCallback(
         const nav_msgs::msg::Odometry::ConstSharedPtr msg)
     {
-        // Retrieve the fixed body-to-aircraft transform from TF2.
+        // Retrieve the fixed IMU-to-aircraft transform from TF2.
         geometry_msgs::msg::TransformStamped tf;
 
         try
         {
             tf = tf_buffer_.lookupTransform(
-                "body",
+                "body_imu",
                 "base_link",
                 tf2::TimePointZero);
         }
@@ -61,69 +61,69 @@ private:
                 get_logger(),
                 *get_clock(),
                 2000,
-                "Waiting for body -> base_link TF: %s",
+                "Waiting for body_imu -> base_link TF: %s",
                 ex.what());
             return;
         }
 
-        // FAST-LIO body pose in world frame
-        const Eigen::Vector3d p_world_body(
+        // IMU pose in world frame
+        const Eigen::Vector3d p_world_imu(
             msg->pose.pose.position.x,
             msg->pose.pose.position.y,
             msg->pose.pose.position.z);
 
-        Eigen::Quaterniond q_world_body(
+        Eigen::Quaterniond q_world_imu(
             msg->pose.pose.orientation.w,
             msg->pose.pose.orientation.x,
             msg->pose.pose.orientation.y,
             msg->pose.pose.orientation.z);
 
-        q_world_body.normalize();
+        q_world_imu.normalize();
 
-        // Fixed transform: body frame -> aircraft frame
-        const Eigen::Vector3d r_body_base(
+        // Fixed transform: IMU frame -> aircraft frame
+        const Eigen::Vector3d r_imu_base(
             tf.transform.translation.x,
             tf.transform.translation.y,
             tf.transform.translation.z);
 
-        Eigen::Quaterniond q_body_base(
+        Eigen::Quaterniond q_imu_base(
             tf.transform.rotation.w,
             tf.transform.rotation.x,
             tf.transform.rotation.y,
             tf.transform.rotation.z);
 
-        q_body_base.normalize();
+        q_imu_base.normalize();
 
         // Aircraft position in world frame
         const Eigen::Vector3d p_world_base =
-            p_world_body + q_world_body * r_body_base;
+            p_world_imu + q_world_imu * r_imu_base;
 
         // Aircraft orientation in world frame
         const Eigen::Quaterniond q_world_base =
-            (q_world_body * q_body_base).normalized();
+            (q_world_imu * q_imu_base).normalized();
 
-        // FAST-LIO linear velocity, expressed in body frame
-        const Eigen::Vector3d v_body(
+        // IMU linear velocity, expressed in IMU frame
+        const Eigen::Vector3d v_imu(
             msg->twist.twist.linear.x,
             msg->twist.twist.linear.y,
             msg->twist.twist.linear.z);
 
-        // Angular velocity, expressed in body frame
-        const Eigen::Vector3d omega_body(
+        // Angular velocity, expressed in IMU frame
+        const Eigen::Vector3d omega_imu(
             msg->twist.twist.angular.x,
             msg->twist.twist.angular.y,
             msg->twist.twist.angular.z);
 
         // Correct for velocity caused by the mounting offset.
-        const Eigen::Vector3d v_base_body =
-            v_body + omega_body.cross(r_body_base);
+        const Eigen::Vector3d v_base_imu =
+            v_imu + omega_imu.cross(r_imu_base);
 
         // Convert velocities into aircraft FLU frame
         const Eigen::Vector3d v_base =
-            q_body_base.conjugate() * v_base_body;
+            q_imu_base.conjugate() * v_base_imu;
 
         const Eigen::Vector3d omega_base =
-            q_body_base.conjugate() * omega_body;
+            q_imu_base.conjugate() * omega_imu;
 
         // Construct aircraft-centered odometry
         nav_msgs::msg::Odometry output;
