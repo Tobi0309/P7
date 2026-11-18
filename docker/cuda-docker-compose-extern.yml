@@ -5,7 +5,9 @@ services:
       dockerfile: Dockerfile
     image: p7-drone-sit-awareness:latest
     container_name: p7-drone-sit-awareness-ex
+    runtime: nvidia
     network_mode: host
+    ipc: host
     privileged: true
     environment:
       - DISPLAY=${DISPLAY}
