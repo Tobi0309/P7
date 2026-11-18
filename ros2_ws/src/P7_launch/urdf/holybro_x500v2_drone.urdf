@@ -6,7 +6,7 @@
   </material>
 
   <!-- IMU-propagated reference frame -->
-  <link name="body"/>
+  <link name="body_imu"/>
 
   <!-- Aircraft geometric centre -->
   <link name="base_link">
@@ -27,7 +27,7 @@
        base_link 180 deg off in yaw from the PX4 body frame / Isaac ground
        truth (roll and pitch had opposite sign to the PX4 IMU in flight). -->
   <joint name="base_link_joint" type="fixed">
-    <parent link="body"/>
+    <parent link="body_imu"/>
     <child link="base_link"/>
     <origin xyz="-0.011 0.052137 0.032813"
             rpy="3.141592653589 0.392699082 -1.57079633"/>
