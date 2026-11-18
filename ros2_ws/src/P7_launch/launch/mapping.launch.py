@@ -90,11 +90,28 @@ def generate_launch_description():
             ],
         )
 
+    imu_propagation = Node(
+        package='fast_lio',
+        executable='imu_propagation',
+        name='imu_propagation',
+        output='screen',
+        parameters=[{'use_sim_time': True}],
+    )
+
+    odometry_transformer = Node(
+    	package='fast_lio',
+    	executable='odometry_transformer',
+    	name='odometry_transformer',
+    	output='screen',
+    	parameters=[{'use_sim_time': True}],
+    )
 
     return LaunchDescription([
         fastlio,
         robot_description,
         octomap_node,
         octomap_node_fov_filtered,
+        imu_propagation,
+        odometry_transformer,
     ])
 

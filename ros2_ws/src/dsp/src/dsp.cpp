@@ -12,7 +12,7 @@ Dsp::Dsp() : Node("dsp")
     this->declare_parameter("upper_thresh", 60);
     this->declare_parameter("risk", 2);
     this->declare_parameter("RATE", 2000.0);
-    this->declare_parameter("use_odometry", falxse);
+    this->declare_parameter("use_odometry", false);
     this->declare_parameter("use_3d", true);
     this->declare_parameter("odom_topic", "odometry/imu");
     this->declare_parameter("odom_frame_id", "map");
