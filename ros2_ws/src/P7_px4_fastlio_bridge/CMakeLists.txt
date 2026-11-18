@@ -12,6 +12,7 @@ find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(px4_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(tf2_ros REQUIRED)
 
 add_executable(px4_odometry_bridge src/px4_odometry_bridge.cpp)
 target_link_libraries(px4_odometry_bridge Eigen3::Eigen)
@@ -20,6 +21,7 @@ ament_target_dependencies(px4_odometry_bridge
   nav_msgs
   geometry_msgs
   px4_msgs
+  tf2_ros
 )
 
 install(TARGETS px4_odometry_bridge

@@ -34,7 +34,7 @@ param set-default PWM_MAIN_FUNC4 104
 
 # --- Zenoh ---
 # Must match ROS_DOMAIN_ID on the ROS 2 side.
-param set-default ZENOH_DOMAIN_ID 0
+#param set-default ZENOH_DOMAIN_ID 0
 
 
 # --- FAST-LIO external vision, no GPS / no mag / no baro ---
