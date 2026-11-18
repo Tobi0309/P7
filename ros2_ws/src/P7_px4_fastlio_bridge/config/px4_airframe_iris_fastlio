@@ -1,0 +1,76 @@
+#!/bin/sh
+#
+# @name 3DR Iris Quadrotor SITL (FAST-LIO external vision)
+#
+# @type Quadrotor Wide
+#
+# @maintainer Julian Oes <julian@oes.ch>
+#
+
+. ${R}etc/init.d/rc.mc_defaults
+
+
+param set-default CA_AIRFRAME 0
+
+param set-default CA_ROTOR_COUNT 4
+param set-default CA_ROTOR0_PX 0.1515
+param set-default CA_ROTOR0_PY 0.245
+param set-default CA_ROTOR0_KM 0.05
+param set-default CA_ROTOR1_PX -0.1515
+param set-default CA_ROTOR1_PY -0.1875
+param set-default CA_ROTOR1_KM 0.05
+param set-default CA_ROTOR2_PX 0.1515
+param set-default CA_ROTOR2_PY -0.245
+param set-default CA_ROTOR2_KM -0.05
+param set-default CA_ROTOR3_PX -0.1515
+param set-default CA_ROTOR3_PY 0.1875
+param set-default CA_ROTOR3_KM -0.05
+
+param set-default PWM_MAIN_FUNC1 101
+param set-default PWM_MAIN_FUNC2 102
+param set-default PWM_MAIN_FUNC3 103
+param set-default PWM_MAIN_FUNC4 104
+
+
+# --- Zenoh ---
+# Must match ROS_DOMAIN_ID on the ROS 2 side.
+#param set-default ZENOH_DOMAIN_ID 0
+
+
+# --- FAST-LIO external vision, no GPS / no mag / no baro ---
+# EV fusion bits: 0 hor. pos, 1 vert. pos, 2 velocity, 3 yaw.
+# 15 = all (bridge send_velocity: true). Use 11 if send_velocity is false.
+param set-default EKF2_EV_CTRL 15
+# Height reference: 3 = Vision
+param set-default EKF2_HGT_REF 3
+
+# Latency NOT already covered by timestamp_sample (FAST-LIO pipeline delay) [ms].
+param set-default EKF2_EV_DELAY 10
+
+# 1 = use the noise params below, 0 = use variances from the message.
+param set-default EKF2_EV_NOISE_MD 1
+param set-default EKF2_EVP_NOISE 0.05
+param set-default EKF2_EVV_NOISE 0.1
+param set-default EKF2_EVA_NOISE 0.05
+param set-default EKF2_EV_GATE 5
+param set-default EKF2_EV_QMIN 0
+
+# Bridge already sends the base_link pose -> no sensor offset.
+param set-default EKF2_EV_POS_X 0
+param set-default EKF2_EV_POS_Y 0
+param set-default EKF2_EV_POS_Z 0
+
+# No GPS
+param set-default EKF2_GPS_CTRL 0
+param set-default SYS_HAS_GPS 0
+param set-default COM_ARM_WO_GPS 1
+
+# No magnetometer (yaw from vision)
+param set-default EKF2_MAG_TYPE 5
+param set-default SYS_HAS_MAG 0
+
+# No barometer fusion (height from vision)
+param set-default EKF2_BARO_CTRL 0
+
+# No range finder
+param set-default EKF2_RNG_CTRL 0

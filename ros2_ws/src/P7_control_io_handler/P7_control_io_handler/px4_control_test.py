@@ -233,25 +233,16 @@ class PosCmdToPx4(Node):
 
         setpoint = TrajectorySetpoint()
         setpoint.timestamp = timestamp
-        setpoint.position = self.transform_position(position, q_align, translation)
+        setpoint.position = self.flu_to_frd(command.position.x, command.position.y, command.position.z)
         setpoint.velocity = (
-            self.rotate_vector(q_align, velocity)
-            if use_velocity
-            else [math.nan, math.nan, math.nan]
+            self.flu_to_frd(*velocity_vector) if use_velocity else [math.nan, math.nan, math.nan]
         )
         setpoint.acceleration = (
-            self.rotate_vector(q_align, acceleration)
-            if use_acceleration
-            else [math.nan, math.nan, math.nan]
+            self.flu_to_frd(*acceleration_vector) if use_acceleration else [math.nan, math.nan, math.nan]
         )
         setpoint.jerk = [math.nan, math.nan, math.nan]
-
-        q_command = self.quaternion_multiply(
-            q_align, self.yaw_quaternion(float(command.yaw))
-        )
-        setpoint.yaw = self.quaternion_yaw(q_command)
-        yaw_rate_vector = self.rotate_vector(q_align, (0.0, 0.0, float(command.yaw_dot)))
-        setpoint.yawspeed = yaw_rate_vector[2]
+        setpoint.yaw = self.flu_yaw_to_frd(command.yaw)
+        setpoint.yawspeed = self.flu_yaw_rate_to_frd(command.yaw_dot)
         self.trajectory_setpoint_publisher.publish(setpoint)
 
         self.publish_offboard_commands(timestamp)
@@ -318,49 +309,23 @@ class PosCmdToPx4(Node):
         self.vehicle_command_publisher.publish(message)
 
     @staticmethod
-    def transform_position(position, quaternion, translation):
-        rotated = PosCmdToPx4.rotate_vector(quaternion, position)
-        return [rotated[i] + translation[i] for i in range(3)]
+    def flu_to_frd(x: float, y: float, z: float):
+        # Planner commands are in camera_init (z-up), computed from
+        # /Odometry_base_link. The PX4 odometry bridge feeds PX4 that same
+        # base_link odometry with camera_init rotated 180 deg about X
+        # (z-down) and base_link FLU -> FRD, so PX4's local frame is
+        # camera_init with y and z negated.
+        return [float(x), float(-y), float(-z)]
 
     @staticmethod
-    def rotate_vector(quaternion, vector):
-        pure = (0.0, float(vector[0]), float(vector[1]), float(vector[2]))
-        rotated = PosCmdToPx4.quaternion_multiply(
-            PosCmdToPx4.quaternion_multiply(quaternion, pure),
-            PosCmdToPx4.quaternion_conjugate(quaternion),
-        )
-        return [rotated[1], rotated[2], rotated[3]]
+    def flu_yaw_to_frd(yaw: float):
+        # 180 deg rotation about X keeps the heading reference (x axis) but
+        # flips the yaw direction: FLU yaw is CCW-positive, FRD is CW-positive.
+        return -float(yaw)
 
     @staticmethod
-    def quaternion_multiply(a, b):
-        aw, ax, ay, az = a
-        bw, bx, by, bz = b
-        return (
-            aw * bw - ax * bx - ay * by - az * bz,
-            aw * bx + ax * bw + ay * bz - az * by,
-            aw * by - ax * bz + ay * bw + az * bx,
-            aw * bz + ax * by - ay * bx + az * bw,
-        )
-
-    @staticmethod
-    def quaternion_conjugate(q):
-        return (q[0], -q[1], -q[2], -q[3])
-
-    @staticmethod
-    def yaw_quaternion(yaw):
-        return (math.cos(yaw / 2.0), 0.0, 0.0, math.sin(yaw / 2.0))
-
-    @staticmethod
-    def quaternion_yaw(q):
-        w, x, y, z = q
-        return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
-
-    def warn_alignment(self, message):
-        now = time.monotonic()
-        if now - self.last_alignment_warning >= 2.0:
-            self.get_logger().warning(message)
-            self.last_alignment_warning = now
-
+    def flu_yaw_rate_to_frd(yaw_rate: float):
+        return -float(yaw_rate)
 
 def main(args=None):
     rclpy.init(args=args)

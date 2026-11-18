@@ -149,7 +149,10 @@ def generate_launch_description():
             {'grid_map/local_update_range_x': 5.5},
             {'grid_map/local_update_range_y': 5.5},
             {'grid_map/local_update_range_z': 4.5},
-            {'grid_map/obstacles_inflation': 0.099},
+            {'grid_map/obstacles_inflation': 1.0},
+            # Vertical inflation [m], separate from the horizontal one above.
+            # Rounded up to whole cells; 0.099 = 1 cell (same as before).
+            {'grid_map/obstacles_inflation_z': 0.099},
             {'grid_map/local_map_margin': 10},
             {'grid_map/ground_height': -0.01},
             # camera parameter

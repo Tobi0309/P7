@@ -41,16 +41,8 @@ def generate_launch_description():
         ]
     )
 
-    camera_init_to_body = Node(
-        package="tf2_ros",
-        executable="static_transform_publisher",
-        arguments=[
-            "0", "0", "0",
-            "0", "0", "0",
-            "camera_init",
-            "body"
-        ]
-    )
+    # camera_init -> body is published dynamically by FAST-LIO; a static
+    # identity here gave `body` two parents in the TF tree.
 
     robot_state_publisher = Node(
         package="robot_state_publisher",
@@ -63,6 +55,5 @@ def generate_launch_description():
     return LaunchDescription([
         camera_init_to_world_old,
         world_to_camera_init,
-        camera_init_to_body,
         robot_state_publisher
     ])
