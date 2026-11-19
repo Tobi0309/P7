@@ -1,28 +1,21 @@
+name: p7-drone
 services:
   p7-drone-sit-awareness:
-    build: 
+    build:
       context: .
       dockerfile: Dockerfile
     image: p7-drone-sit-awareness:latest
-    container_name: p7-drone-sit-awareness-ex
+    container_name: p7-drone-sit-awareness
     runtime: nvidia
     network_mode: host
     ipc: host
     privileged: true
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
     environment:
       - DISPLAY=${DISPLAY}
       - ROS_DOMAIN_ID=42
       - QT_QPA_PLATFORM=xcb
       - XAUTHORITY=${XAUTHORITY:-/root/.Xauthority}
       - RMW_IMPLEMENTATION=rmw_zenoh_cpp
-      - ZENOH_CONFIG_OVERRIDE=mode="client";connect/endpoints=["tcp/192.168.10.232:7447"]
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
     volumes:
@@ -35,5 +28,5 @@ services:
     devices:
       - /dev:/dev
 
-    stdin_open: true  
-    tty: true        
+    stdin_open: true
+    tty: true
