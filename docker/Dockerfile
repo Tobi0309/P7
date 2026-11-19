@@ -81,12 +81,20 @@ RUN apt-get update && apt-get install -y \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
+# Pin NumPy < 2 for every later pip call: apt's cv_bridge (and other ROS
+# Python bindings) are compiled against Ubuntu's NumPy 1.26 and segfault on 2.x.
+# opencv-python(-headless) >= 4.12 requires NumPy 2, so cap it too.
+# torch/torchvision are pinned to the CUDA 13.0 build: newer PyPI torch is built
+# for CUDA 13.2, which the Jetson driver does not support (cuda.is_available()=False).
+RUN printf 'numpy<2\nopencv-python<4.12\nopencv-python-headless<4.12\ntorch==2.14.1+cu130\ntorchvision==0.29.1+cu130\n' > /etc/pip-constraints.txt
+ENV PIP_CONSTRAINT=/etc/pip-constraints.txt
+
 # Download YOLO and CUDA correctly
 # Remove any CPU-only torch that may already be present
 RUN pip3 uninstall -y --break-system-packages torch torchvision || true
 # CUDA 13 PyTorch wheels (work on Orin / JetPack 7.2, Python 3.12)
 RUN pip3 install --no-cache-dir --break-system-packages \
-    torch torchvision "numpy<2" \
+    torch==2.14.1+cu130 torchvision==0.29.1+cu130 "numpy<2" \
     --index-url https://download.pytorch.org/whl/cu130 \
     --extra-index-url https://pypi.org/simple
 # Libraries that JetPack does not ship but torch needs
@@ -110,8 +118,7 @@ RUN cd Livox-SDK2/build && \
 
 RUN python3 -m pip install --break-system-packages \
     do-mpc[full] \
-    casadi \
-    --ignore-installed numpy
+    casadi
 
 # Install DSL dependency required by DSP (D*+ planner)
 WORKDIR /root
