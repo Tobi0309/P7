@@ -28,6 +28,7 @@ find_package(tf2_ros REQUIRED)
 find_package(tf2 REQUIRED)
 find_path(ROS2TOP_INCLUDE_DIR ros2top/ros2top.hpp REQUIRED)
 find_package(nlohmann_json REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 
 include_directories(
     include
@@ -48,7 +49,8 @@ ament_target_dependencies(dsp
     Eigen3 
     DSL
     tf2
-    tf2_ros)
+    tf2_ros
+    tf2_geometry_msgs)
 target_include_directories(dsp PRIVATE ${ROS2TOP_INCLUDE_DIR})
 target_link_libraries(dsp nlohmann_json::nlohmann_json)
 ament_export_dependencies(eigen3_cmake_module)

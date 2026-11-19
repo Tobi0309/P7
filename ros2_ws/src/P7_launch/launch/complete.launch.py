@@ -1,103 +1,71 @@
-from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription
-from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch_ros.actions import Node
-from ament_index_python.packages import get_package_share_directory
-
 import os
+
+from ament_index_python.packages import get_package_share_directory
+from launch import LaunchDescription
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.conditions import IfCondition
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
+
+
+def include(package, launch_file, **kwargs):
+    return IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(get_package_share_directory(package), 'launch', launch_file)
+        ),
+        **kwargs,
+    )
 
 
 def generate_launch_description():
+    launch_rviz = LaunchConfiguration('launch_rviz')
 
-    launch_dir = os.path.dirname(os.path.realpath(__file__))
-
-    realsense = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(launch_dir, 'realsense.launch.py')
-        )
+    declare_launch_rviz = DeclareLaunchArgument(
+        'launch_rviz',
+        default_value='true',
+        description='Launch RViz (P7_launch rviz.launch.py)',
     )
 
-    # realsense_launch = os.path.join(
-    #     get_package_share_directory('realsense2_camera'),
-    #     'launch',
-    #     'rs_launch.py'
-    # )
+    mapping = include('P7_launch', 'mapping.launch.py')
+    ego_planner = include('ego_planner', 'advanced_param_live.launch.py')
+    dsp = include('dsp', 'dsp_launch.py')
+    rviz = include('P7_launch', 'rviz.launch.py', condition=IfCondition(launch_rviz))
+    px4_controller = include('P7_px4_fastlio_bridge', 'px4_fastlio_bridge.launch.py', launch_arguments={'use_sim_time': 'true'}.items())
 
-    livox = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            [
-                get_package_share_directory('livox_ros_driver2'),
-                '/launch_ROS2/msg_MID360s_launch.py'
-            ]
-        )
-    )
 
-    tf_static = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            os.path.join(launch_dir, 'tf_static.launch.py')
-        )
-    )
 
-    # -------------------------------------------------------------
-    # Color: raw -> compressed/JPEG
-    #
-    # Input:
-    #   /UAV/rgbd_camera/color/image_raw
-    #
-    # Output:
-    #   /UAV/rgbd_camera/color/image_raw/compressed
-    # -------------------------------------------------------------
-
-    color_compressor = Node(
-        package='image_transport',
-        executable='republish',
-        name='color_compressor',
-        namespace='UAV/rgbd_camera/color',
+    pos_cmd_to_px4 = Node(
+        package='P7_control_io_handler',
+        executable='pos_cmd_to_px4',
+        name='pos_cmd_to_px4',
         output='screen',
-
         parameters=[{
-            'in_transport': 'raw',
-            'out_transport': 'compressed',
+            'use_sim_time': True,
+            'position_command_topic': '/drone_0_planning/pos_cmd',
+            'px4_odometry_topic': '/fmu/out/vehicle_odometry',
         }],
-
-        remappings=[
-            ('in', 'image_raw'),
-            ('out', 'image_raw'),
-        ],
     )
 
-    # -------------------------------------------------------------
-    # Aligned depth: raw -> compressedDepth
-    #
-    # Input:
-    #   /UAV/rgbd_camera/aligned_depth_to_color/image_raw
-    #
-    # Output:
-    #   /UAV/rgbd_camera/aligned_depth_to_color/image_raw/compressedDepth
-    # -------------------------------------------------------------
-
-    depth_compressor = Node(
-        package='image_transport',
-        executable='republish',
-        name='depth_compressor',
-        namespace='UAV/rgbd_camera/aligned_depth_to_color',
+    # Goal on /goal -> DSP (dsp/set_goal service) at a fixed height
+    goal_converter_dsp = Node(
+        package='P7_helper',
+        executable='goal_converter_dsp',
+        name='goal_converter_dsp',
         output='screen',
-
         parameters=[{
-            'in_transport': 'raw',
-            'out_transport': 'compressedDepth',
+            'use_sim_time': True,
+            'goal_height': 2.0,
         }],
-
-        remappings=[
-            ('in', 'image_raw'),
-            ('out', 'image_raw'),
-        ],
     )
-
+    
     return LaunchDescription([
-        realsense,
-        color_compressor,
-        depth_compressor,
-        livox,
-        tf_static,
+        declare_launch_rviz,
+        mapping,
+        ego_planner,
+        dsp,
+        goal_converter_dsp,
+        pos_cmd_to_px4,
+        rviz,
+        px4_controller,
     ])

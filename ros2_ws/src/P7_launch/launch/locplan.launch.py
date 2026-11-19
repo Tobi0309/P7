@@ -1,5 +1,5 @@
 from pathlib import Path
-
+from launch_ros.actions import Node
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -52,6 +52,43 @@ def generate_launch_description():
         }.items()
     )
 
+    imu_propagation = Node(
+        package='fast_lio',
+        executable='imu_propagation',
+        name='imu_propagation',
+        output='screen',
+        parameters=[{'use_sim_time': True}],
+    )
+
+    odometry_transformer = Node(
+    	package='fast_lio',
+    	executable='odometry_transformer',
+    	name='odometry_transformer',
+    	output='screen',
+    	parameters=[{'use_sim_time': True}],
+    )
+
+    goal_converter_dsp = Node(
+	package='P7_helper',
+	executable='goal_converter_dsp',
+	name='goal_converter_dsp',
+	output='screen',
+	parameters=[{'use_sim_time': True}],
+    )
+
+    pos_cmd_to_px4 = Node(
+        package='P7_control_io_handler',
+        executable='pos_cmd_to_px4',
+        name='pos_cmd_to_px4',
+        output='screen',
+        parameters=[{
+            'use_sim_time': True,
+            'position_command_topic': '/drone_0_planning/pos_cmd',
+            'goal_topic': '/move_base_simple/goal',
+            'px4_odometry_topic': '/fmu/out/vehicle_odometry',
+        }],
+    )
+
     rosbag_player = ExecuteProcess(
         cmd=['ros2', 'bag', 'play', bag_path, '--clock'],
         output='screen',
@@ -66,5 +103,10 @@ def generate_launch_description():
         declare_rviz_config,
         rviz,
         fastlio,
+        imu_propagation,
+	    odometry_transformer,
+	    goal_converter_dsp,
+	    pos_cmd_to_px4,
         delayed_rosbag_player,
     ])
+

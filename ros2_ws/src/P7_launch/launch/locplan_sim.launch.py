@@ -1,9 +1,10 @@
 from pathlib import Path
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, TimerAction
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 import os
 
@@ -27,7 +28,7 @@ def generate_launch_description():
         ),
         launch_arguments={
             'rviz_config': LaunchConfiguration('rviz_config'),
-            'use_sim_time': 'false',
+            'use_sim_time': 'true',
         }.items(),
     )
 
@@ -41,12 +42,64 @@ def generate_launch_description():
         ),
         launch_arguments={
             'rviz': 'false',
-            'use_sim_time': 'false',
+            'use_sim_time': 'true',
         }.items()
+    )
+
+    octomap = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(
+                get_package_share_directory('P7_launch'),
+                'launch',
+                'octomap.launch.py',
+            )
+        )
+    )
+
+    imu_propagation = Node(
+        package='fast_lio',
+        executable='imu_propagation',
+        name='imu_propagation',
+        output='screen',
+        parameters=[{'use_sim_time': True}],
+    )
+
+    odometry_transformer = Node(
+    	package='fast_lio',
+    	executable='odometry_transformer',
+    	name='odometry_transformer',
+    	output='screen',
+    	parameters=[{'use_sim_time': True}],
+    )
+
+    goal_converter_dsp = Node(
+        package='P7_helper',
+        executable='goal_converter_dsp',
+        name='goal_converter_dsp',
+        output='screen',
+        parameters=[{'use_sim_time': True}],
+    )
+
+    pos_cmd_to_px4 = Node(
+        package='P7_control_io_handler',
+        executable='pos_cmd_to_px4',
+        name='pos_cmd_to_px4',
+        output='screen',
+        parameters=[{
+            'use_sim_time': True,
+            'position_command_topic': '/drone_0_planning/pos_cmd',
+            'goal_topic': '/move_base_simple/goal',
+            'px4_odometry_topic': '/fmu/out/vehicle_odometry',
+        }],
     )
 
     return LaunchDescription([
         declare_rviz_config,
         rviz,
         fastlio,
+        octomap,
+        imu_propagation,
+        odometry_transformer,
+        goal_converter_dsp,
+        pos_cmd_to_px4,
     ])

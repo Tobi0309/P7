@@ -23,7 +23,7 @@ find_package(path_searching REQUIRED)
 find_package(bspline_opt REQUIRED)
 find_package(traj_utils REQUIRED COMPONENTS traj_utils_lib)
 find_package(cv_bridge REQUIRED)
-
+find_package(tf2_ros REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(PCL REQUIRED)
 find_package(pcl_conversions REQUIRED)

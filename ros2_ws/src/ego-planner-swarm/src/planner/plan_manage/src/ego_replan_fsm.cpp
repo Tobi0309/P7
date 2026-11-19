@@ -1,5 +1,6 @@
 
 #include <ego_planner/ego_replan_fsm.h>
+#include <cmath>
 
 namespace ego_planner
 {
@@ -22,6 +23,10 @@ namespace ego_planner
     node_->declare_parameter("fsm/emergency_time", 1.0);
     node_->declare_parameter("fsm/realworld_experiment", false);
     node_->declare_parameter("fsm/fail_safe", true);
+    node_->declare_parameter("fsm/goal_height_above_ground", 2.0);
+    node_->declare_parameter("fsm/goal_min_height_above_ground", 0.5);
+    node_->declare_parameter("fsm/goal_vertical_search_range", 2.0);
+    node_->declare_parameter("fsm/use_goal_z", true);
 
     node_->get_parameter("fsm/flight_type", target_type_);
     node_->get_parameter("fsm/thresh_replan_time", replan_thresh_);
@@ -31,6 +36,10 @@ namespace ego_planner
     node_->get_parameter("fsm/emergency_time", emergency_time_);
     node_->get_parameter("fsm/realworld_experiment", flag_realworld_experiment_);
     node_->get_parameter("fsm/fail_safe", enable_fail_safe_);
+    node_->get_parameter("fsm/goal_height_above_ground", goal_height_above_ground_);
+    node_->get_parameter("fsm/goal_min_height_above_ground", goal_min_height_above_ground_);
+    node_->get_parameter("fsm/goal_vertical_search_range", goal_vertical_search_range_);
+    node_->get_parameter("fsm/use_goal_z", use_goal_z_);
 
     have_trigger_ = !flag_realworld_experiment_;
 
@@ -183,8 +192,11 @@ namespace ego_planner
     planNextWaypoint(wps_[wp_id_]);
   }
 
-  void EGOReplanFSM::planNextWaypoint(const Eigen::Vector3d next_wp)
+  bool EGOReplanFSM::planNextWaypoint(const Eigen::Vector3d next_wp, bool is_goal_adjustment)
   {
+    if (!is_goal_adjustment)
+      goal_height_adjustment_attempted_ = false;
+
     bool success = false;
     success = planner_manager_->planGlobalTraj(odom_pos_, odom_vel_, Eigen::Vector3d::Zero(), next_wp, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
 
@@ -205,17 +217,14 @@ namespace ego_planner
       have_new_target_ = true;
 
       /*** FSM状态转换 ***/
+      // Never block or spin here: this runs inside subscription/timer callbacks that are
+      // already being executed by rclcpp::spin() (spin_some would throw, and waiting would
+      // deadlock the single-threaded executor). GEN_NEW_TRAJ / REPLAN_TRAJ pick up the new
+      // global trajectory on their next tick; other states reach it via WAIT_TARGET.
       if (exec_state_ == WAIT_TARGET)
         changeFSMExecState(GEN_NEW_TRAJ, "TRIG");
-      else
-      {
-        while (exec_state_ != EXEC_TRAJ)
-        {
-          rclcpp::spin_some(node_);
-          std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
+      else if (exec_state_ == EXEC_TRAJ)
         changeFSMExecState(REPLAN_TRAJ, "TRIG");
-      }
 
       visualization_->displayGlobalPathList(gloabl_traj, 0.1, 0);
     }
@@ -223,6 +232,7 @@ namespace ego_planner
     {
       RCLCPP_ERROR(node_->get_logger(), "Unable to generate global trajectory!");
     }
+    return success;
   }
 
   void EGOReplanFSM::triggerCallback(const std::shared_ptr<const geometry_msgs::msg::PoseStamped> &msg)
@@ -234,16 +244,58 @@ namespace ego_planner
 
   void EGOReplanFSM::waypointCallback(const std::shared_ptr<const geometry_msgs::msg::PoseStamped> &msg)
   {
-    if (msg->pose.position.z < -0.1)
-      return;
+    auto map = planner_manager_->grid_map_;
+    double goal_z;
+
+    if (use_goal_z_)
+    {
+      // Use the requested height (e.g. from DSP), kept inside the band ego-planner can fly in.
+      // If that voxel is occupied, checkCollisionCallback() still searches vertically for a free one.
+      Eigen::Vector3d map_origin, map_size;
+      map->getRegion(map_origin, map_size);
+      const double min_z = map->getGroundHeight() + goal_min_height_above_ground_;
+      const double top_z = map->getVirtualCeilHeight() > map->getGroundHeight()
+                               ? map->getVirtualCeilHeight()
+                               : map_origin.z() + map_size.z();
+      const double max_z = std::max(min_z, top_z - map->getResolution());
+      goal_z = std::clamp(msg->pose.position.z, min_z, max_z);
+      if (goal_z != msg->pose.position.z)
+      {
+        RCLCPP_WARN(node_->get_logger(),
+                    "Goal z=%.2f is outside the flyable band [%.2f, %.2f]; using z=%.2f",
+                    msg->pose.position.z, min_z, max_z, goal_z);
+      }
+    }
+    else
+    {
+      if (msg->pose.position.z < -0.1)
+        return;
+      goal_z = map->getGroundHeight() + goal_height_above_ground_;
+    }
 
     cout << "Triggered!" << endl;
 
     init_pt_ = odom_pos_;
 
-    Eigen::Vector3d end_wp(msg->pose.position.x, msg->pose.position.y, 1.0);
+    // Only the yaw of the goal orientation is used; a zero quaternion means "no yaw requested".
+    const auto &q = msg->pose.orientation;
+    const bool yaw_valid = (q.w * q.w + q.x * q.x + q.y * q.y + q.z * q.z) > 1e-6;
+    const double yaw = std::atan2(2.0 * (q.w * q.z + q.x * q.y),
+                                  q.w * q.w + q.x * q.x - q.y * q.y - q.z * q.z);
 
-    planNextWaypoint(end_wp);
+    Eigen::Vector3d end_wp(msg->pose.position.x, msg->pose.position.y, goal_z);
+
+    if (planNextWaypoint(end_wp))
+    {
+      end_yaw_ = yaw;
+      have_end_yaw_ = yaw_valid;
+      if (yaw_valid)
+        RCLCPP_INFO(node_->get_logger(), "New goal (%.2f, %.2f, %.2f), yaw at arrival %.1f deg",
+                    end_wp.x(), end_wp.y(), end_wp.z(), yaw * 180.0 / M_PI);
+      else
+        RCLCPP_INFO(node_->get_logger(), "New goal (%.2f, %.2f, %.2f), no orientation given",
+                    end_wp.x(), end_wp.y(), end_wp.z());
+    }
   }
 
   void EGOReplanFSM::odometryCallback(const std::shared_ptr<const nav_msgs::msg::Odometry> &msg)
@@ -563,6 +615,37 @@ odom_vel_ = q * vel_body;
 
     case REPLAN_TRAJ:
     {
+      // reboundReplan() refuses to plan when the start point is within 0.2 m of the goal
+      // ("Close to goal"), which used to leave the FSM stuck in REPLAN_TRAJ forever.
+      // Treat that as arrival: hold at the current commanded position and finish the goal.
+      LocalTrajData *info = &planner_manager_->local_data_;
+      double t_cur = std::min(info->duration_, (node_->get_clock()->now() - info->start_time_).seconds());
+      Eigen::Vector3d pos = info->position_traj_.evaluateDeBoorT(t_cur);
+
+      if ((pos - end_pt_).norm() < 0.2)
+      {
+        if (target_type_ == TARGET_TYPE::PRESET_TARGET && wp_id_ < waypoint_num_ - 1)
+        {
+          // Intermediate preset waypoint: move on; next tick replans toward the new end_pt_.
+          wp_id_++;
+          planNextWaypoint(wps_[wp_id_]);
+          break;
+        }
+
+        RCLCPP_INFO(node_->get_logger(), "Reached goal while replanning, holding position.");
+        callEmergencyStop(pos, true);
+
+        // Same goal-completion handling as EXEC_TRAJ.
+        have_target_ = false;
+        have_trigger_ = false;
+        if (target_type_ == TARGET_TYPE::PRESET_TARGET)
+        {
+          wp_id_ = 0;
+          planNextWaypoint(wps_[wp_id_]);
+        }
+        changeFSMExecState(WAIT_TARGET, "FSM");
+        break;
+      }
 
       if (planFromCurrentTraj(1))
       {
@@ -717,6 +800,54 @@ odom_vel_ = q * vel_body;
 
     LocalTrajData *info = &planner_manager_->local_data_;
     auto map = planner_manager_->grid_map_;
+
+    // Keep manual goals at the configured height above ground. If an obstacle
+    // occupies that voxel, search vertically for the nearest free voxel.
+    if (have_target_ && !goal_height_adjustment_attempted_ &&
+        map->isInMap(end_pt_) && map->getInflateOccupancy(end_pt_))
+    {
+      goal_height_adjustment_attempted_ = true;
+      const double resolution = map->getResolution();
+      const double min_goal_z = map->getGroundHeight() + goal_min_height_above_ground_;
+      const double max_goal_z = map->getVirtualCeilHeight() > map->getGroundHeight()
+                                    ? map->getVirtualCeilHeight()
+                                    : map->getGroundHeight() + goal_height_above_ground_ + goal_vertical_search_range_;
+      const int search_steps = static_cast<int>(std::ceil(goal_vertical_search_range_ / resolution));
+      bool found_free_goal = false;
+
+      for (int step = 1; step <= search_steps && !found_free_goal; ++step)
+      {
+        const double offset = step * resolution;
+        const double candidate_heights[] = {end_pt_.z() + offset, end_pt_.z() - offset};
+        for (double candidate_z : candidate_heights)
+        {
+          if (candidate_z < min_goal_z || candidate_z >= max_goal_z)
+            continue;
+
+          Eigen::Vector3d candidate_goal(end_pt_.x(), end_pt_.y(), candidate_z);
+          if (!map->isInMap(candidate_goal) || map->getInflateOccupancy(candidate_goal))
+            continue;
+
+          planNextWaypoint(candidate_goal, true);
+          if ((end_pt_ - candidate_goal).norm() < 1e-6)
+          {
+            RCLCPP_WARN(node_->get_logger(),
+                        "Goal voxel is occupied; moved goal to free height z=%.2f.", candidate_z);
+            found_free_goal = true;
+            break;
+          }
+        }
+      }
+
+      if (found_free_goal)
+        return;
+      else
+      {
+        RCLCPP_WARN(node_->get_logger(),
+                    "Goal voxel is occupied and no free height was found within %.1f m; keeping the goal.",
+                    goal_vertical_search_range_);
+      }
+    }
     
     if (exec_state_ == WAIT_TARGET || info->start_time_.seconds() < 1e-5)
       return;
@@ -836,6 +967,8 @@ odom_vel_ = q * vel_body;
         bspline.knots.push_back(knots(i));
       }
 
+      attachGoalYaw(bspline, (local_target_pt_ - end_pt_).norm() < 1e-3);
+
       /* 1. publish traj to traj_server */
       bspline_pub_->publish(bspline);
 
@@ -900,7 +1033,16 @@ odom_vel_ = q * vel_body;
     broadcast_bspline_pub_->publish(bspline);
   }
 
-  bool EGOReplanFSM::callEmergencyStop(Eigen::Vector3d stop_pos)
+  // Tells traj_server which yaw to turn to (in place) once this trajectory has finished. Only
+  // trajectories that end at the manual goal carry it, so the drone keeps facing its direction
+  // of travel while it moves.
+  void EGOReplanFSM::attachGoalYaw(traj_utils::msg::Bspline &bspline, bool ends_at_goal) const
+  {
+    if (ends_at_goal && have_end_yaw_)
+      bspline.yaw_pts.push_back(end_yaw_);
+  }
+
+  bool EGOReplanFSM::callEmergencyStop(Eigen::Vector3d stop_pos, bool hold_goal_yaw)
   {
 
     planner_manager_->EmergencyStop(stop_pos);
@@ -930,6 +1072,8 @@ odom_vel_ = q * vel_body;
     {
       bspline.knots.push_back(knots(i));
     }
+
+    attachGoalYaw(bspline, hold_goal_yaw);
 
     bspline_pub_->publish(bspline);
 

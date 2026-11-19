@@ -22,6 +22,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/PathCost.srv"
   "srv/QueryReachability.srv"
   "srv/QueryReachabilityBatch.srv"
+  "srv/SetGoal.srv"
   DEPENDENCIES
   geometry_msgs
   nav_msgs

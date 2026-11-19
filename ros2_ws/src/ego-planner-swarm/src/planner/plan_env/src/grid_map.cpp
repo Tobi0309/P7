@@ -17,6 +17,7 @@ void GridMap::initMap(rclcpp::Node::SharedPtr node)
   node_->declare_parameter("grid_map/local_update_range_y", -1.0);
   node_->declare_parameter("grid_map/local_update_range_z", -1.0);
   node_->declare_parameter("grid_map/obstacles_inflation", -1.0);
+  node_->declare_parameter("grid_map/obstacles_inflation_z", -1.0);
   node_->declare_parameter("grid_map/fx", -1.0);
   node_->declare_parameter("grid_map/fy", -1.0);
   node_->declare_parameter("grid_map/cx", -1.0);
@@ -54,6 +55,7 @@ void GridMap::initMap(rclcpp::Node::SharedPtr node)
   node_->get_parameter("grid_map/local_update_range_y", mp_.local_update_range_(1));
   node_->get_parameter("grid_map/local_update_range_z", mp_.local_update_range_(2));
   node_->get_parameter("grid_map/obstacles_inflation", mp_.obstacles_inflation_);
+  node_->get_parameter("grid_map/obstacles_inflation_z", mp_.obstacles_inflation_z_);
   node_->get_parameter("grid_map/fx", mp_.fx_);
   node_->get_parameter("grid_map/fy", mp_.fy_);
   node_->get_parameter("grid_map/cx", mp_.cx_);
@@ -117,6 +119,8 @@ void GridMap::initMap(rclcpp::Node::SharedPtr node)
 
   md_.occupancy_buffer_ = vector<double>(buffer_size, mp_.clamp_min_log_ - mp_.unknown_flag_);
   md_.occupancy_buffer_inflate_ = vector<char>(buffer_size, 0);
+  md_.cloud_occupied_buffer_ = vector<char>(buffer_size, 0);
+  md_.cloud_hit_buffer_ = vector<char>(buffer_size, 0);
 
   md_.count_hit_and_miss_ = vector<short>(buffer_size, 0);
   md_.count_hit_ = vector<short>(buffer_size, 0);
@@ -652,8 +656,12 @@ void GridMap::clearAndInflateLocalMap()
   // inflate occupied voxels to compensate robot size
 
   int inf_step = ceil(mp_.obstacles_inflation_ / mp_.resolution_);
-  // int inf_step_z = 1;
-  vector<Eigen::Vector3i> inf_pts(pow(2 * inf_step + 1, 3));
+  // Vertical inflation: obstacles_inflation_z if set (>= 0), otherwise the
+  // legacy behaviour for depth input (same as horizontal).
+  int inf_step_z = mp_.obstacles_inflation_z_ >= 0.0
+                       ? (int)ceil(mp_.obstacles_inflation_z_ / mp_.resolution_)
+                       : inf_step;
+  vector<Eigen::Vector3i> inf_pts((2 * inf_step + 1) * (2 * inf_step + 1) * (2 * inf_step_z + 1));
   // inf_pts.resize(4 * inf_step + 3);
   Eigen::Vector3i inf_pt;
 
@@ -673,7 +681,7 @@ void GridMap::clearAndInflateLocalMap()
 
         if (md_.occupancy_buffer_[toAddress(x, y, z)] > mp_.min_occupancy_log_)
         {
-          inflatePoint(Eigen::Vector3i(x, y, z), inf_step, inf_pts);
+          inflatePoint(Eigen::Vector3i(x, y, z), inf_step, inf_step_z, inf_pts);
 
           for (int k = 0; k < (int)inf_pts.size(); ++k)
           {
@@ -856,6 +864,8 @@ void GridMap::rollMapIfNeeded()
         mp_.clamp_min_log_ - mp_.unknown_flag_;
 
     md_.occupancy_buffer_inflate_[address] = 0;
+    md_.cloud_occupied_buffer_[address] = 0;
+    md_.cloud_hit_buffer_[address] = 0;
     md_.count_hit_and_miss_[address] = 0;
     md_.count_hit_[address] = 0;
     md_.flag_rayend_[address] = -1;
@@ -934,14 +944,15 @@ void GridMap::cloudCallback(const sensor_msgs::msg::PointCloud2::ConstPtr &img)
 
   rollMapIfNeeded();
 
-  this->resetBuffer(md_.camera_pos_ - mp_.local_update_range_,
-                    md_.camera_pos_ + mp_.local_update_range_);
-
   pcl::PointXYZ pt;
   Eigen::Vector3d p3d, p3d_inf;
 
   int inf_step = ceil(mp_.obstacles_inflation_ / mp_.resolution_);
-  int inf_step_z = 1;
+  // Vertical inflation: obstacles_inflation_z if set (>= 0), otherwise the
+  // legacy behaviour for point-cloud input (1 cell).
+  int inf_step_z = mp_.obstacles_inflation_z_ >= 0.0
+                       ? (int)ceil(mp_.obstacles_inflation_z_ / mp_.resolution_)
+                       : 1;
 
   double max_x, max_y, max_z, min_x, min_y, min_z;
 
@@ -965,6 +976,19 @@ void GridMap::cloudCallback(const sensor_msgs::msg::PointCloud2::ConstPtr &img)
     if (fabs(devi(0)) < mp_.local_update_range_(0) && fabs(devi(1)) < mp_.local_update_range_(1) &&
         fabs(devi(2)) < mp_.local_update_range_(2))
     {
+
+      // Registered scans repeat many of the same surface voxels. Inflate a
+      // source voxel only on its first observation; the occupied voxel layer
+      // persists until the rolling map clears that area.
+      Eigen::Vector3i hit_id;
+      posToIndex(p3d, hit_id);
+      if (!isInMap(hit_id))
+        continue;
+
+      const int hit_address = toAddress(hit_id);
+      if (md_.cloud_hit_buffer_[hit_address] != 0)
+        continue;
+      md_.cloud_hit_buffer_[hit_address] = 1;
 
       /* inflate the point */
       // 点云膨胀
@@ -992,7 +1016,7 @@ void GridMap::cloudCallback(const sensor_msgs::msg::PointCloud2::ConstPtr &img)
 
             int idx_inf = toAddress(inf_pt);
 
-            md_.occupancy_buffer_inflate_[idx_inf] = 1;
+            md_.cloud_occupied_buffer_[idx_inf] = 1;
           }
     }
   }
@@ -1098,7 +1122,9 @@ void GridMap::publishMapInflate(bool all_info)
     for (int y = min_cut(1); y <= max_cut(1); ++y)
       for (int z = min_cut(2); z <= max_cut(2); ++z)
       {
-        if (md_.occupancy_buffer_inflate_[toAddress(x, y, z)] == 0)
+        const int address = toAddress(x, y, z);
+        if (md_.occupancy_buffer_inflate_[address] == 0 &&
+            md_.cloud_occupied_buffer_[address] == 0)
           continue;
 
         Eigen::Vector3d pos;

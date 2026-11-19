@@ -22,8 +22,8 @@ def generate_launch_description():
     fx = LaunchConfiguration('fx', default=387.229248046875)
     fy = LaunchConfiguration('fy', default=387.229248046875)
     
-    max_vel = LaunchConfiguration('max_vel', default=2.0)
-    max_acc = LaunchConfiguration('max_acc', default=3.0)
+    max_vel = LaunchConfiguration('max_vel', default=0.5)
+    max_acc = LaunchConfiguration('max_acc', default=0.5)
     planning_horizon = LaunchConfiguration('planning_horizon', default=7.5)
     
     point_num = LaunchConfiguration('point_num', default=1)
@@ -96,7 +96,7 @@ def generate_launch_description():
         name=['drone_', drone_id, '_ego_planner_node'],
         output='screen',
         remappings=[
-            ('odom_world', '/Odometry'),
+            ('odom_world', '/Odometry_base_link'),
             ('planning/bspline', ['drone_', drone_id, '_planning/bspline']),
             ('planning/data_display', ['drone_', drone_id, '_planning/data_display']),
             ('planning/broadcast_bspline_from_planner', '/broadcast_bspline'),
@@ -108,7 +108,7 @@ def generate_launch_description():
             ('optimal_list', ['drone_', drone_id, '_plan_vis/optimal_list']),
             ('a_star_list', ['drone_', drone_id, '_plan_vis/a_star_list']),
             
-            ('grid_map/odom', '/Odometry'),
+            ('grid_map/odom', '/Odometry_imu'),
             ('grid_map/cloud', '/cloud_registered'),
             ('grid_map/pose', ['drone_', drone_id, '_', camera_pose_topic]),
             ('grid_map/depth', ['drone_', drone_id, '_', depth_topic]),
@@ -124,6 +124,9 @@ def generate_launch_description():
             {'fsm/emergency_time': 1.0},
             {'fsm/realworld_experiment': False},
             {'fsm/fail_safe': True},
+            # Use the goal's z (e.g. from DSP), clamped to the flyable band. False = fixed
+            # height of fsm/goal_height_above_ground above grid_map/ground_height.
+            {'fsm/use_goal_z': True},
             
             {'fsm/waypoint_num': point_num},
             {'fsm/waypoint0_x': point0_x},
@@ -149,7 +152,10 @@ def generate_launch_description():
             {'grid_map/local_update_range_x': 5.5},
             {'grid_map/local_update_range_y': 5.5},
             {'grid_map/local_update_range_z': 4.5},
-            {'grid_map/obstacles_inflation': 0.099},
+            {'grid_map/obstacles_inflation': 0.36},
+            # Vertical inflation [m], separate from the horizontal one above.
+            # Rounded up to whole cells; 0.099 = 1 cell (same as before).
+            {'grid_map/obstacles_inflation_z': 0.4},
             {'grid_map/local_map_margin': 10},
             {'grid_map/ground_height': -0.01},
             # camera parameter
@@ -221,7 +227,9 @@ def generate_launch_description():
         ],
     parameters=[
         {'use_sim_time': ParameterValue(use_sim_time, value_type=bool)},
-        {'traj_server/time_forward': 1.0}
+        {'traj_server/time_forward': 1.0},
+        # Yaw rate [rad/s] used to turn in place to the goal orientation after arriving.
+        {'traj_server/goal_yaw_rate': 0.5}
         ]
     )
 

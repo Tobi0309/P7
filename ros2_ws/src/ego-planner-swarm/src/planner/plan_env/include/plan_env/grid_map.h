@@ -56,6 +56,9 @@ struct MappingParameters
   Eigen::Vector3d local_update_range_;
   double resolution_, resolution_inv_;
   double obstacles_inflation_;
+  // Vertical inflation [m]. Negative = legacy behaviour (cloud input: 1 cell,
+  // depth input: same as obstacles_inflation_).
+  double obstacles_inflation_z_;
   string frame_id_;
   int pose_type_;
 
@@ -97,6 +100,10 @@ struct MappingData
 
   std::vector<double> occupancy_buffer_;
   std::vector<char> occupancy_buffer_inflate_;
+  // Persistent cloud obstacles and their source voxels. Separate from the
+  // depth-fusion buffers so depth updates cannot erase accumulated cloud hits.
+  std::vector<char> cloud_occupied_buffer_;
+  std::vector<char> cloud_hit_buffer_;
 
   // camera position and pose data
 
@@ -194,6 +201,8 @@ public:
   inline double getResolution();
   Eigen::Vector3d getOrigin();
   int getVoxelNum();
+  double getGroundHeight() const { return mp_.ground_height_; }
+  double getVirtualCeilHeight() const { return mp_.virtual_ceil_height_; }
   bool getOdomDepthTimeout() { return md_.flag_depth_odom_timeout_; }
 
   typedef std::shared_ptr<GridMap> Ptr;
@@ -223,7 +232,7 @@ private:
   void raycastProcess();
   void clearAndInflateLocalMap();
 
-  inline void inflatePoint(const Eigen::Vector3i &pt, int step, vector<Eigen::Vector3i> &pts);
+  inline void inflatePoint(const Eigen::Vector3i &pt, int step, int step_z, vector<Eigen::Vector3i> &pts);
   int setCacheOccupancy(Eigen::Vector3d pos, int occ);
   Eigen::Vector3d closetPointInMap(const Eigen::Vector3d &pt, const Eigen::Vector3d &camera_pt);
 
@@ -319,7 +328,9 @@ inline bool GridMap::isKnownFree(const Eigen::Vector3i &id)
 
   // return md_.occupancy_buffer_[adr] >= mp_.clamp_min_log_ &&
   //     md_.occupancy_buffer_[adr] < mp_.min_occupancy_log_;
-  return md_.occupancy_buffer_[adr] >= mp_.clamp_min_log_ && md_.occupancy_buffer_inflate_[adr] == 0;
+  return md_.occupancy_buffer_[adr] >= mp_.clamp_min_log_ &&
+         md_.occupancy_buffer_inflate_[adr] == 0 &&
+         md_.cloud_occupied_buffer_[adr] == 0;
 }
 
 inline bool GridMap::isKnownOccupied(const Eigen::Vector3i &id)
@@ -328,7 +339,8 @@ inline bool GridMap::isKnownOccupied(const Eigen::Vector3i &id)
   boundIndex(id1);
   int adr = toAddress(id1);
 
-  return md_.occupancy_buffer_inflate_[adr] == 1;
+  return md_.occupancy_buffer_inflate_[adr] == 1 ||
+         md_.cloud_occupied_buffer_[adr] == 1;
 }
 
 inline void GridMap::setOccupied(Eigen::Vector3d pos)
@@ -378,7 +390,8 @@ inline int GridMap::getInflateOccupancy(Eigen::Vector3d pos)
   Eigen::Vector3i id;
   posToIndex(pos, id);
 
-  return int(md_.occupancy_buffer_inflate_[toAddress(id)]);
+  int adr = toAddress(id);
+  return int(md_.occupancy_buffer_inflate_[adr] || md_.cloud_occupied_buffer_[adr]);
 }
 
 inline int GridMap::getOccupancy(Eigen::Vector3i id)
@@ -432,7 +445,7 @@ inline void GridMap::indexToPos(const Eigen::Vector3i &id, Eigen::Vector3d &pos)
     pos(i) = (id(i) + 0.5) * mp_.resolution_ + mp_.map_origin_(i);
 }
 
-inline void GridMap::inflatePoint(const Eigen::Vector3i &pt, int step, vector<Eigen::Vector3i> &pts)
+inline void GridMap::inflatePoint(const Eigen::Vector3i &pt, int step, int step_z, vector<Eigen::Vector3i> &pts)
 {
   int num = 0;
   /* ---------- + shape inflate ---------- */
@@ -456,7 +469,7 @@ inline void GridMap::inflatePoint(const Eigen::Vector3i &pt, int step, vector<Ei
   /* ---------- all inflate ---------- */
   for (int x = -step; x <= step; ++x)
     for (int y = -step; y <= step; ++y)
-      for (int z = -step; z <= step; ++z)
+      for (int z = -step_z; z <= step_z; ++z)
       {
         pts[num++] = Eigen::Vector3i(pt(0) + x, pt(1) + y, pt(2) + z);
       }

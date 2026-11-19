@@ -13,6 +13,8 @@ services:
       - QT_QPA_PLATFORM=xcb
       - XAUTHORITY=${XAUTHORITY:-/root/.Xauthority}
       - RMW_IMPLEMENTATION=rmw_zenoh_cpp
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
       - ZENOH_CONFIG_OVERRIDE=mode="client";connect/endpoints=["tcp/192.168.10.232:7447"]
     volumes:
       - /dev/dri/:/dev/dri
