@@ -50,7 +50,7 @@ def generate_launch_description():
         ),
     )
 
-    rviz_config = DeclareLaunchArgument(
+    declare_rviz_config = DeclareLaunchArgument(
         'rviz_config',
         default_value='drone.rviz',
         description='RViz configuration file in the P7_launch rviz directory.',
@@ -68,7 +68,6 @@ def generate_launch_description():
 
     return LaunchDescription([
         publish_robot_description,
-        rviz_config,
         declare_rviz_config,
         declare_use_sim_time,
         robot_description,

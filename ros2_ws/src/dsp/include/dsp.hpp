@@ -8,6 +8,8 @@
 #include "nav_msgs/msg/occupancy_grid.hpp"
 
 #include "dsp_interfaces/srv/path_cost.hpp"
+#include "dsp_interfaces/srv/query_reachability_batch.hpp"
+#include "std_srvs/srv/trigger.hpp"
 
 #include "tf2/exceptions.h"
 #include "tf2_ros/transform_listener.h"
@@ -25,6 +27,7 @@
 #include "visualization_msgs/msg/marker.hpp"
 
 #include <memory>
+#include <mutex>
 #include <Eigen/Dense>
 #include <cmath>
 
@@ -35,6 +38,7 @@ class Dsp : public rclcpp::Node
 {
 public:
     Dsp();
+    ~Dsp() override;
 
 private:
     // callbac for map
@@ -53,12 +57,13 @@ private:
     void handleSetStart(const geometry_msgs::msg::Point::SharedPtr msg);
     void handleSetStartOdom(const nav_msgs::msg::Odometry::SharedPtr msg);
     void setStart(Eigen::Vector3d wpos);        
-    void setTfStart();
-
+    void request_reachability_batch(const std::shared_ptr<dsp_interfaces::srv::QueryReachabilityBatch::Request> req, std::shared_ptr<dsp_interfaces::srv::QueryReachabilityBatch::Response> res);
     void request_cost(const std::shared_ptr<dsp_interfaces::srv::PathCost::Request> req, std::shared_ptr<dsp_interfaces::srv::PathCost::Response> res);
     float path_distance(const nav_msgs::msg::Path path);
     float point_distance(geometry_msgs::msg::Point p0, geometry_msgs::msg::Point p1);
     bool setSG(Eigen::Vector3d grid_start, Eigen::Vector3d grid_goal);
+    bool setTfStart();
+    void reportPlanningFailure(const std::string &message);
     
     // Height map:
     void buildHeightMap();
@@ -91,7 +96,11 @@ private:
     rclcpp::TimerBase::SharedPtr path_update_timer;
 
     rclcpp::Service<dsp_interfaces::srv::PathCost>::SharedPtr cost_srv_;
-    
+    rclcpp::Service<dsp_interfaces::srv::QueryReachabilityBatch>::SharedPtr reachability_batch_srv_;
+    rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr planning_failure_client_;
+    rclcpp::TimerBase::SharedPtr ros2top_timer_;
+    bool ros2top_registered_{false};
+
     // dsp variables
     std::shared_ptr<dsl::Grid3d> grid_;
     dsl::GridCost<3> cost_;
@@ -119,11 +128,16 @@ private:
     
     Eigen::Vector3d start_pos;
     Eigen::Vector3d goal_pos;
+    Eigen::Vector3d last_grid_start;
+    Eigen::Vector3d last_grid_goal;
+    bool has_last_grid_start = false;
+    bool has_last_grid_goal = false;
     bool grid_built = false;
     Eigen::Vector3d pmin;       
 
     std::shared_ptr<tf2_ros::TransformListener> tf_listener{nullptr};
     std::unique_ptr<tf2_ros::Buffer> tf_buffer;
+    std::mutex planning_mutex_;
 };      
 
 } // namespace

@@ -3,9 +3,11 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstddef>
 #include <memory>
 #include <limits>
 #include <iterator>
+#include <functional>
 #include <numeric>
 #include <optional>
 #include <string>
@@ -234,8 +236,7 @@ private:
       return;
     }
 
-    // Expand the current tree into a consistent native-resolution voxel snapshot.
-    // Keep occupancy as well as presence: free->occupied and occupied->free are changes.
+    // Expand the OctoMap into a consistent native-resolution voxel snapshot.
     std::unordered_map<int64_t, Voxel> current_voxels;
     std::unordered_map<int64_t, bool> current_occupancy;
     std::unordered_set<int64_t> known_voxels;
@@ -274,23 +275,22 @@ private:
 
     if (resolution_changed)
     {
-      // A changed resolution invalidates the old voxel-key coordinate system.
       for (const auto &[key, voxel] : current_voxels)
         changed_keys.insert(key);
+
       published_segments_.clear();
       published_segment_recent_.clear();
       published_segment_ids_.clear();
     }
     else
     {
-      // Added cells and occupancy transitions.
       for (const auto &[key, occupied] : current_occupancy)
       {
-      const auto old = previous_occupancy_.find(key);
+        const auto old = previous_occupancy_.find(key);
         if (old == previous_occupancy_.end() || old->second != occupied)
           changed_keys.insert(key);
       }
-      // Removed cells also matter: they may turn neighbouring free cells into frontiers.
+
       for (const auto &[key, occupied] : previous_occupancy_)
         if (current_occupancy.find(key) == current_occupancy.end())
           changed_keys.insert(key);
@@ -305,8 +305,8 @@ private:
       return;
     }
 
-    // A voxel's frontier status depends on its 26-neighbourhood. Build a dirty
-    // key set from each changed key and its neighbours.
+    // Frontier status depends on the 26-neighbourhood. A changed map voxel
+    // therefore dirties itself and its immediate neighbours.
     std::unordered_set<int64_t> dirty_keys;
     for (const int64_t changed_key : changed_keys)
     {
@@ -317,141 +317,318 @@ private:
                                 : (old != previous_voxels_.end() ? &old->second : nullptr);
       if (!center)
         continue;
+
       for (int dx = -1; dx <= 1; ++dx)
         for (int dy = -1; dy <= 1; ++dy)
           for (int dz = -1; dz <= 1; ++dz)
             dirty_keys.insert(key3(center->x + dx, center->y + dy, center->z + dz));
     }
 
-    // Keep previous segments whose own frontier voxels are outside the dirty
-    // neighbourhood. Invalidate an entire segment if even one of its voxels is
-    // affected, then re-check all voxels from that segment against the new map.
-    std::vector<Component> kept_segments;
-    std::vector<bool> kept_segment_recent;
-    std::vector<uint32_t> kept_segment_ids;
-    std::unordered_set<int64_t> reevaluate_keys = dirty_keys;
-    kept_segments.reserve(published_segments_.size());
-    kept_segment_recent.reserve(published_segments_.size());
-    kept_segment_ids.reserve(published_segments_.size());
-    size_t invalidated_segment_count = 0;
-    for (size_t previous_index = 0; previous_index < published_segments_.size(); ++previous_index)
+    // `recent` describes a change in frontier membership that should trigger
+    // viewpoint work. Clear the event flag for this publication; unchanged
+    // frontier IDs and geometry remain persistent.
+    published_segment_recent_.resize(published_segments_.size(), false);
+    std::fill(published_segment_recent_.begin(), published_segment_recent_.end(), false);
+
+    // Validate only existing frontier voxels in the dirty neighbourhood.
+    // Invalid voxels are removed in-place; the remaining cluster keeps its ID.
+    size_t removed_frontier_voxels = 0;
+    std::vector<Component> retained_segments;
+    std::vector<bool> retained_recent;
+    std::vector<uint32_t> retained_ids;
+    retained_segments.reserve(published_segments_.size());
+    retained_recent.reserve(published_segments_.size());
+    retained_ids.reserve(published_segments_.size());
+
+    for (size_t i = 0; i < published_segments_.size(); ++i)
     {
-      const auto &segment = published_segments_[previous_index];
-      bool affected = false;
-      for (const auto &voxel : segment)
+      Component retained;
+      retained.reserve(published_segments_[i].size());
+      for (const auto &voxel : published_segments_[i])
       {
-        if (dirty_keys.find(key3(voxel.x, voxel.y, voxel.z)) != dirty_keys.end())
+        const int64_t key = key3(voxel.x, voxel.y, voxel.z);
+        if (dirty_keys.find(key) == dirty_keys.end() ||
+            isFrontierVoxel(voxel, *tree, current_occupancy))
         {
-          affected = true;
-          break;
+          retained.push_back(voxel);
+        }
+        else
+        {
+          ++removed_frontier_voxels;
         }
       }
-      if (affected)
+
+      // A frontier that falls below the configured minimum is no longer useful.
+      if (retained.size() >= static_cast<size_t>(min_frontier_voxels_))
       {
-        ++invalidated_segment_count;
-        for (const auto &voxel : segment)
-          reevaluate_keys.insert(key3(voxel.x, voxel.y, voxel.z));
-      }
-      else
-      {
-        kept_segments.push_back(segment);
-        kept_segment_recent.push_back(false);
-        kept_segment_ids.push_back(published_segment_ids_.at(previous_index));
+        retained_segments.push_back(std::move(retained));
+        retained_recent.push_back(false);
+        retained_ids.push_back(published_segment_ids_[i]);
       }
     }
 
-    // Build frontier candidates only from the dirty cells and voxels belonging
-    // to invalidated segments. Unchanged, unaffected segments are never re-tested
-    // or re-segmented.
-    std::vector<Voxel> changed_frontiers;
-    changed_frontiers.reserve(reevaluate_keys.size());
-    std::unordered_set<int64_t> unique_frontiers;
-    for (const int64_t key : reevaluate_keys)
+    published_segments_ = std::move(retained_segments);
+    published_segment_recent_ = std::move(retained_recent);
+    published_segment_ids_ = std::move(retained_ids);
+
+    // Rebuild the voxel -> persistent frontier ID index after removals.
+    auto buildOwnerMap = [this]()
+    {
+      std::unordered_map<int64_t, uint32_t> owners;
+      size_t count = 0;
+      for (const auto &segment : published_segments_)
+        count += segment.size();
+      owners.reserve(count * 2);
+      for (size_t i = 0; i < published_segments_.size(); ++i)
+        for (const auto &voxel : published_segments_[i])
+          owners[key3(voxel.x, voxel.y, voxel.z)] = published_segment_ids_[i];
+      return owners;
+    };
+
+    auto owner_map = buildOwnerMap();
+
+    // Detect only frontier voxels in the dirty region. Existing frontier
+    // voxels are already represented by owner_map and are not re-segmented.
+    std::vector<Voxel> added_frontier_voxels;
+    added_frontier_voxels.reserve(dirty_keys.size());
+    size_t out_of_range_candidates = 0;
+    for (const int64_t key : dirty_keys)
     {
       const auto voxel_it = current_voxels.find(key);
       if (voxel_it == current_voxels.end())
-        continue;  // Removed or still-unknown cell.
-      if (current_occupancy.at(key))
-        continue;  // Frontier candidates must be known-free.
+        continue;
 
       const Voxel &voxel = voxel_it->second;
-      const double range = (Eigen::Vector3d(voxel.wx, voxel.wy, voxel.wz) - robot_origin).norm();
+      if (!isFrontierVoxel(voxel, *tree, current_occupancy))
+        continue;
+
+      if (owner_map.find(key) != owner_map.end())
+        continue;
+
+      const double range =
+          (Eigen::Vector3d(voxel.wx, voxel.wy, voxel.wz) - robot_origin).norm();
       if (range < min_range_ || range > max_range_)
+      {
+        ++out_of_range_candidates;
         continue;
+      }
 
-      bool unknown_neighbor = false;
-      for (int dx = -1; dx <= 1 && !unknown_neighbor; ++dx)
-        for (int dy = -1; dy <= 1 && !unknown_neighbor; ++dy)
-          for (int dz = -1; dz <= 1 && !unknown_neighbor; ++dz)
-          {
-            if (dx == 0 && dy == 0 && dz == 0)
-              continue;
-            const int nx = voxel.x + dx, ny = voxel.y + dy, nz = voxel.z + dz;
-            if (nx < 0 || ny < 0 || nz < 0 ||
-                nx > std::numeric_limits<octomap::key_type>::max() ||
-                ny > std::numeric_limits<octomap::key_type>::max() ||
-                nz > std::numeric_limits<octomap::key_type>::max())
-            {
-              unknown_neighbor = true;
-              continue;
-            }
-            const octomap::OcTreeKey neighbour(static_cast<octomap::key_type>(nx),
-                                               static_cast<octomap::key_type>(ny),
-                                               static_cast<octomap::key_type>(nz));
-            if (tree->search(neighbour) == nullptr)
-              unknown_neighbor = true;
-          }
-      const int64_t voxel_key = key3(voxel.x, voxel.y, voxel.z);
-      if (unknown_neighbor && unique_frontiers.insert(voxel_key).second)
-        changed_frontiers.push_back(voxel);
+      added_frontier_voxels.push_back(voxel);
     }
 
-    // Segment only this update's frontier candidates, then append them to the
-    // untouched previous segments.
-    auto components = connectedComponents(changed_frontiers, res);
-    std::vector<Component> new_segments;
-    for (const auto &component : components)
+    // Connected components are formed only from genuinely new frontier voxels.
+    // Keep even small components here: a small addition may bridge two existing
+    // frontiers or extend a cluster that already exceeds the minimum size.
+    auto added_components = connectedComponents(added_frontier_voxels, res, false);
+
+    size_t created_segments = 0;
+    size_t merged_frontier_count = 0;
+    size_t split_frontier_count = 0;
+
+    for (const auto &added_component : added_components)
     {
-      if (!hasUnsupportedVoxel(component, known_voxels))
+      if (added_component.empty())
         continue;
-      splitComponent(component, res, 0, new_segments);
-    }
-    new_segments.erase(std::remove_if(new_segments.begin(), new_segments.end(),
-                                      [this](const Component &c)
-                                      { return c.size() < static_cast<size_t>(min_frontier_voxels_); }),
-                       new_segments.end());
-    new_segments.erase(std::remove_if(new_segments.begin(), new_segments.end(),
-                                      [this, &known_voxels](const Component &c)
-                                      { return !hasUnsupportedVoxel(c, known_voxels); }),
-                       new_segments.end());
 
-    const size_t retained_segment_count = kept_segments.size();
-    const size_t new_segment_count = new_segments.size();
-    published_segments_ = std::move(kept_segments);
-    published_segment_recent_ = std::move(kept_segment_recent);
-    published_segment_ids_ = std::move(kept_segment_ids);
-    published_segments_.insert(published_segments_.end(),
-                               std::make_move_iterator(new_segments.begin()),
-                               std::make_move_iterator(new_segments.end()));
-    published_segment_recent_.insert(published_segment_recent_.end(),
-                                     new_segment_count, true);
-    published_segment_ids_.reserve(published_segment_ids_.size() + new_segment_count);
-    for (size_t i = 0; i < new_segment_count; ++i)
-      published_segment_ids_.push_back(next_frontier_id_++);
+      // Find all existing clusters adjacent to this new component. A new
+      // component touching multiple clusters merges those clusters.
+      owner_map = buildOwnerMap();
+      std::unordered_set<uint32_t> adjacent_ids;
+      for (const auto &voxel : added_component)
+      {
+        for (int dx = -1; dx <= 1; ++dx)
+          for (int dy = -1; dy <= 1; ++dy)
+            for (int dz = -1; dz <= 1; ++dz)
+            {
+              if (dx == 0 && dy == 0 && dz == 0)
+                continue;
+              const auto owner = owner_map.find(key3(voxel.x + dx, voxel.y + dy, voxel.z + dz));
+              if (owner != owner_map.end())
+                adjacent_ids.insert(owner->second);
+            }
+      }
+
+      if (adjacent_ids.empty())
+      {
+        // A genuinely new frontier. Top-of-map voxels have already been
+        // excluded by isFrontierVoxel(); apply normal geometric splitting.
+        std::vector<Component> new_segments;
+        for (const auto &component : connectedComponents(added_component, res, false)) {
+          if (!hasUnsupportedVoxel(component, known_voxels)) {
+            continue;
+          }
+          splitComponent(component, res, 0, new_segments, known_voxels);
+        }
+
+        for (auto &segment : new_segments)
+        {
+          if (segment.size() < static_cast<size_t>(min_frontier_voxels_))
+            continue;
+          published_segments_.push_back(std::move(segment));
+          published_segment_recent_.push_back(true);
+          published_segment_ids_.push_back(next_frontier_id_++);
+          ++created_segments;
+        }
+        continue;
+      }
+
+      // Select the persistent ID with the largest existing voxel overlap.
+      // Since clusters are disjoint, this is the largest pre-merge cluster.
+      uint32_t keeper_id = 0;
+      size_t largest_cluster_size = 0;
+      Eigen::Vector3d keeper_old_centroid = Eigen::Vector3d::Zero();
+      std::vector<size_t> merge_indices;
+
+      for (size_t i = 0; i < published_segment_ids_.size(); ++i)
+      {
+        if (adjacent_ids.find(published_segment_ids_[i]) == adjacent_ids.end())
+          continue;
+
+        merge_indices.push_back(i);
+        if (published_segments_[i].size() > largest_cluster_size)
+        {
+          largest_cluster_size = published_segments_[i].size();
+          keeper_id = published_segment_ids_[i];
+          keeper_old_centroid = componentCentroid(published_segments_[i]);
+        }
+      }
+
+      if (merge_indices.empty())
+        continue;
+
+      Component merged_voxels;
+      merged_voxels.reserve(added_component.size());
+      merged_voxels.insert(merged_voxels.end(), added_component.begin(), added_component.end());
+
+      // Remove merged clusters from the persistent arrays, retaining their voxels
+      // in a temporary component. Erase from highest index to lowest.
+      std::sort(merge_indices.begin(), merge_indices.end(), std::greater<size_t>());
+      for (const size_t index : merge_indices)
+      {
+        merged_voxels.insert(merged_voxels.end(),
+                             published_segments_[index].begin(),
+                             published_segments_[index].end());
+        published_segments_.erase(published_segments_.begin() + static_cast<std::ptrdiff_t>(index));
+        published_segment_recent_.erase(
+            published_segment_recent_.begin() + static_cast<std::ptrdiff_t>(index));
+        published_segment_ids_.erase(
+            published_segment_ids_.begin() + static_cast<std::ptrdiff_t>(index));
+      }
+
+      if (merge_indices.size() > 1)
+        merged_frontier_count += merge_indices.size() - 1;
+
+      // Re-cluster after additions. This also resolves any disconnection that
+      // accumulated during earlier removal-only updates.
+      std::vector<Component> merged_outputs;
+      for (const auto &connected : connectedComponents(merged_voxels, res, false)) {
+        if (!hasUnsupportedVoxel(connected, known_voxels)) {
+          continue;
+        }
+        splitComponent(connected, res, 0, merged_outputs, known_voxels);
+      }
+      if (merged_outputs.empty())
+        continue;
+
+      // The component closest to the old keeper centroid retains the keeper ID.
+      size_t keeper_output = 0;
+      double best_distance = std::numeric_limits<double>::infinity();
+      for (size_t i = 0; i < merged_outputs.size(); ++i)
+      {
+        const double distance =
+            (componentCentroid(merged_outputs[i]) - keeper_old_centroid).squaredNorm();
+        if (distance < best_distance)
+        {
+          best_distance = distance;
+          keeper_output = i;
+        }
+      }
+
+      for (size_t i = 0; i < merged_outputs.size(); ++i)
+      {
+        if (merged_outputs[i].size() < static_cast<size_t>(min_frontier_voxels_))
+          continue;
+        if (!hasUnsupportedVoxel(merged_outputs[i], known_voxels))
+          continue;
+
+        const uint32_t id = (i == keeper_output) ? keeper_id : next_frontier_id_++;
+        published_segments_.push_back(std::move(merged_outputs[i]));
+        published_segment_recent_.push_back(true);
+        published_segment_ids_.push_back(id);
+        ++created_segments;
+      }
+
+      if (merged_outputs.size() > 1)
+        ++split_frontier_count;
+    }
 
     previous_voxels_ = std::move(current_voxels);
     previous_occupancy_ = std::move(current_occupancy);
     previous_resolution_ = res;
     have_previous_octomap_ = true;
 
-    publishResults(*msg, res, published_segments_, published_segment_recent_,
-                   published_segment_ids_, known_voxels);
+    publishResults(*msg, res, published_segments_, published_segment_recent_, published_segment_ids_, known_voxels);
+
     if (diagnostics_)
       RCLCPP_INFO(get_logger(),
-                  "Incremental update: %zu changed voxels, %zu dirty voxels, %zu invalidated segments, %zu new frontier voxels, %zu new segments, %zu retained segments, %zu total segments",
-                  changed_keys.size(), dirty_keys.size(), invalidated_segment_count,
-                  changed_frontiers.size(), new_segment_count, retained_segment_count,
+                  "Persistent update: %zu changed map voxels, %zu dirty voxels, "
+                  "%zu removed frontier voxels, %zu added frontier voxels, "
+                  "%zu out-of-range candidates, %zu created/updated segments, "
+                  "%zu merged clusters, %zu split events, %zu total frontiers",
+                  changed_keys.size(), dirty_keys.size(), removed_frontier_voxels,
+                  added_frontier_voxels.size(), out_of_range_candidates,
+                  created_segments, merged_frontier_count, split_frontier_count,
                   published_segments_.size());
+  }
+
+
+  bool isFrontierVoxel(const Voxel &voxel, const octomap::OcTree &tree,
+                       const std::unordered_map<int64_t, bool> &occupancy) const
+  {
+    // A frontier voxel must itself be known and free.
+    const int64_t own_key = key3(voxel.x, voxel.y, voxel.z);
+    const auto own = occupancy.find(own_key);
+    if (own == occupancy.end() || own->second)
+      return false;
+
+    // Only unknown neighbours in the same horizontal layer or below count.
+    // This rejects frontiers caused exclusively by unknown space above 
+    // the voxel, while preserving frontiers that can be explored in XY.
+    for (int dx = -1; dx <= 1; ++dx)
+      for (int dy = -1; dy <= 1; ++dy)
+        for (int dz = -1; dz <= 0; ++dz)
+        {
+          if (dx == 0 && dy == 0 && dz == 0)
+            continue;
+
+          const int nx = voxel.x + dx;
+          const int ny = voxel.y + dy;
+          const int nz = voxel.z + dz;
+
+          if (nx < 0 || ny < 0 || nz < 0 ||
+              nx > std::numeric_limits<octomap::key_type>::max() ||
+              ny > std::numeric_limits<octomap::key_type>::max() ||
+              nz > std::numeric_limits<octomap::key_type>::max())
+            return true;
+
+          const octomap::OcTreeKey neighbour(static_cast<octomap::key_type>(nx),
+                                            static_cast<octomap::key_type>(ny),
+                                            static_cast<octomap::key_type>(nz));
+          if (tree.search(neighbour) == nullptr)
+            return true;
+        }
+
+    return false;
+  }
+
+  Eigen::Vector3d componentCentroid(const Component &component) const
+  {
+    Eigen::Vector3d centroid = Eigen::Vector3d::Zero();
+    if (component.empty())
+      return centroid;
+    for (const auto &voxel : component)
+      centroid += Eigen::Vector3d(voxel.wx, voxel.wy, voxel.wz);
+    return centroid / static_cast<double>(component.size());
   }
 
   bool are26Adjacent(const Voxel &a, const Voxel &b, double res)
@@ -463,7 +640,7 @@ private:
     return dx <= res + tolerance && dy <= res + tolerance && dz <= res + tolerance && (dx > tolerance || dy > tolerance || dz > tolerance);
   }
 
-  std::vector<Component> connectedComponents(const std::vector<Voxel> &v, double res)
+  std::vector<Component> connectedComponents(const std::vector<Voxel> &v, double res, bool enforce_min_size = true)
   {
     std::unordered_map<int64_t, size_t> lookup;
     lookup.reserve(v.size() * 2);
@@ -497,7 +674,7 @@ private:
               }
             }
       }
-      if (static_cast<int>(c.size()) >= min_frontier_voxels_)
+      if (!enforce_min_size || static_cast<int>(c.size()) >= min_frontier_voxels_)
         out.push_back(std::move(c));
     }
     return out;
@@ -522,7 +699,6 @@ private:
     }
     return false;
   }
-
   struct Metrics
   {
     double width, height, max_extent, elongation, convexity;
@@ -570,7 +746,9 @@ private:
     return {std::hypot(maxx - minx + res, maxy - miny + res), maxz - minz + res, std::max({maxx - minx + res, maxy - miny + res, maxz - minz + res}), elongation, convexity, axis};
   }
 
-  void splitComponent(const Component &c, double res, int depth, std::vector<Component> &out)
+  void splitComponent(const Component &c, double res, int depth,
+                      std::vector<Component> &out,
+                      const std::unordered_set<int64_t> &known_voxels)
   {
     if (c.empty())
       return;
@@ -608,16 +786,16 @@ private:
     for (const Component *part : {&left, &right})
     {
       const auto connected_parts = connectedComponents(*part, res);
-      for (const auto &connected_part : connected_parts)
-        splitComponent(connected_part, res, depth + 1, out);
+      for (const auto &connected_part : connected_parts) {
+        if (!hasUnsupportedVoxel(connected_part, known_voxels)) {
+          continue;
+        }
+        splitComponent(connected_part, res, depth + 1, out, known_voxels);
+      }
     }
   }
 
-  void publishResults(const octomap_msgs::msg::Octomap &map, double res,
-                      const std::vector<Component> &segments,
-                      const std::vector<bool> &segment_recent,
-                      const std::vector<uint32_t> &segment_ids,
-                      const std::unordered_set<int64_t> &known_voxels)
+  void publishResults(const octomap_msgs::msg::Octomap &map, double res, const std::vector<Component> &segments, const std::vector<bool> &segment_recent, const std::vector<uint32_t> &segment_ids, const std::unordered_set<int64_t> &known_voxels)
   {
     frontier_segmentation::msg::FrontierArray arr;
     arr.header = map.header;
@@ -683,12 +861,11 @@ private:
       marker.scale.x = res;
       marker.scale.y = res;
       marker.scale.z = res;
-      // Use 10 deterministic colors along yellow -> orange -> red.
-      const double color_position = static_cast<double>(id % 10) / 9.0;
-      std::array<double, 3> rgb{1.0, 1.0 - color_position, 0.0};
-      marker.color.r = rgb[0];
-      marker.color.g = rgb[1];
-      marker.color.b = rgb[2];
+      const double color_position = static_cast<double>((id % 16) + 2) / 18.0;
+      const double intensity = 1.0 - color_position;
+      marker.color.r = intensity;
+      marker.color.g = intensity;
+      marker.color.b = intensity;
       marker.color.a = 1.0;
       if (diagnostics_)
       {

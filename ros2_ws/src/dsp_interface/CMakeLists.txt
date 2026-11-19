@@ -18,7 +18,10 @@ find_package(nav_msgs REQUIRED)
 
 
 ## Generate added messages and services with any dependencies listed here
-rosidl_generate_interfaces(${PROJECT_NAME} "srv/PathCost.srv"
+rosidl_generate_interfaces(${PROJECT_NAME} 
+  "srv/PathCost.srv"
+  "srv/QueryReachability.srv"
+  "srv/QueryReachabilityBatch.srv"
   DEPENDENCIES
   geometry_msgs
   nav_msgs

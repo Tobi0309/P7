@@ -1,49 +1,47 @@
-# frontier_viewpoint_optimizer
+# frontier_viewpoint_optimizer — spatial incremental / no orphan retention
 
-Incremental ROS 2 C++ frontier viewpoint optimizer.
+ROS 2 Jazzy package. Publishes one `OptimizedFrontier` per *currently listed* frontier that has a validated viewpoint. Preserves native 0.5 m OctoMap voxel-center sampling and six-connected BFS, refinement within a single cell, frontier-area-based scoring, and ros2top registration/heartbeat.
 
-## Required upstream message change
+## Lifecycle and correctness
 
-Append `bool recent` to `frontier_segmentation/msg/Frontier.msg`.
+- Each received `FrontierArray` is an authoritative snapshot. An ID not present in it is erased immediately, including its cached result and pending work. An ID never gets published twice; no orphan retention or missing-ID grace period.
+- An unchanged frontier remains in the cache and keeps its optimized viewpoint regardless of distance traveled by the UAV. Neither odometry changes nor unrelated map changes request resampling.
+- Geometry revisions schedule expensive optimization only when the segment is marked `recent`, or map native-cell changes touch that segment. Removal-only changes (which segmentation currently marks `recent=false`) are caught using spatial differences.
+- Changed map voxels only request cheap validation when they intersect the cached viewpoint cell or its watched observation-ray cells. Other viewpoints are untouched. Geometric reoptimization and validation run on separate threads.
+- `reachable=0` after a *completed, untruncated* BFS freezes optimization of that frontier geometry revision. A new materially changed frontier geometry in an affected region can unfreeze it. Search time/node-limit failure is **not** proof of unreachability. The selector/DSP must still verify an actual navigation route.
+- If optimization fails to improve a valid cached result, the old result stays available. If validation proves that its cell is occupied or all sampled observations are blocked, the cache is invalidated.
+- Canceled IDs cannot resurrect a result even when an expensive optimization finishes late; results are committed only if the ID and monotonic geometry revision still match.
 
-Semantics: `recent=true` means newly created or geometrically changed in the latest segmentation update; retained unchanged segments must publish `false`. The optimizer caches by `Frontier.id`, recomputes new/recent frontiers, and removes IDs no longer present. Therefore retained segment IDs must remain stable between publications.
+## Threads
 
-## Inputs
-- `frontier_segmentation/msg/FrontierArray`
-- `octomap_msgs/msg/Octomap`: required for occupancy-aware collision and unknown-space estimates
-- `nav_msgs/msg/Odometry`: current UAV position and conservative straight-line reachability test
-
-FrontierArray alone cannot provide collision clearance or path reachability.
-
-## Outputs
-- `frontier_viewpoint_optimizer/msg/OptimizedFrontierArray`
-- `visualization_msgs/msg/MarkerArray`: translucent grey triangular FOV shell per optimized frontier, or solid directional arrows when `visualize_markers_as_arrows` is enabled
-
-## Algorithms
-Candidate positions are sampled around frontier centroid and a subsample of frontier voxels, using radial offsets and altitude offsets. A candidate is rejected if its collision sphere intersects occupied or unknown OctoMap cells. Reachability is a swept-sphere straight-line check from odometry to candidate; this is a conservative line-of-sight proxy, not A*.
-
-Yaw scoring is `w_area * observable_frontier_area + w_volume * expected_unknown_volume - altitude_bias - excessive_altitude_penalty`. The default area weight is intentionally larger. The volume term ray-samples the FOV, discounts known free space by only counting the first unknown interval, stops at occupied cells, and caps unknown depth. It is an approximate ranking metric, not exact volumetric integration.
-
-Altitude bias is one-sided: a linear penalty applies above `altitude_reference_z`, followed by an additional quadratic penalty above `altitude_reference_z + altitude_excess_scale`. There is deliberately no low-altitude penalty; low viewpoints are instead discouraged by reduced visible frontier area and collision clearance.
-
-## 360-degree LiDAR yaw caveat
-With `horizontal_fov_deg: 360`, yaw cannot change the geometric visibility of an ideal omnidirectional LiDAR. The node therefore evaluates a single bearing yaw. Yaw sampling becomes meaningful only when the effective horizontal FOV is configured below 360 degrees (e.g. sensor/body occlusion or a directional sensor model).
-
-The default vertical envelope interprets the previously described coverage as a 76-degree band from +46.5 to -29.5 degrees plus another 59 degrees downward, giving -88.5 to +46.5 degrees. Verify this interpretation and the sensor-frame mounting before using the FOV mesh/gain estimates.
+1. **ROS callbacks / executor:** keeps the latest OctoMap input only; synchronizes frontier membership and odometry.
+2. **Map worker:** decodes the newest map, computes the exact native-grid occupancy delta from the last processed map, and schedules only affected IDs. Coalesces intermediate map messages safely by comparing snapshots.
+3. **Validation worker:** checks only the affected cached viewpoint and its rays, with no reachability BFS.
+4. **Optimization worker pool:** `optimization_worker_count` (default 2), each running expensive candidate sampling and a shared local BFS per processed snapshot/robot cell. The work queue contains each frontier ID at most once.
 
 ## Build and run
+
 ```bash
-sudo apt install ros-$ROS_DISTRO-octomap ros-$ROS_DISTRO-octomap-msgs nlohmann-json3-dev libeigen3-dev
-cd ~/your_ws
-colcon build --packages-up-to frontier_viewpoint_optimizer
+colcon build --packages-select frontier_viewpoint_optimizer --symlink-install
 source install/setup.bash
 ros2 launch frontier_viewpoint_optimizer frontier_viewpoint_optimizer.launch.py
 ```
-The upstream `frontier_segmentation` package must be built/sourced. `ros2top` registration and heartbeat are compiled in when `ros2top/ros2top.hpp` is discoverable by CMake.
 
-## Limitations
-- Not compiled against your exact workspace/package versions.
-- Unknown-volume estimate is sampled and approximate; tune `new_volume_weight`.
-- Unknown cells are treated as non-traversable for candidate collision clearance.
-- Straight-line reachability is not a full 3D path planner.
-- The FOV shell models the angular envelope, not Livox non-repetitive scan pattern, beam timing, or airframe occlusion.
+Requires `ros2top` and `nlohmann_json` unconditionally; **no** `FVO_WITH_ROS2TOP` preprocessor switch. C++ uses K&R/1TBS attached braces and the included `.clang-format` has `ColumnLimit: 0`.
+
+## Upstream frontier_segmentation findings (uploaded reference)
+
+- Existing segments **are** carried forward outside `dirty_keys` (`retained.push_back(voxel)`), but segments smaller than `min_frontier_voxels` are removed from the published set. Removed IDs must disappear from optimized output as well.
+- New frontier voxels are discarded if their distance to the robot is beyond `max_range_`, whereas existing segments are retained. This is an intentional or accidental robot-dependent **discovery** filter, not a global frontier lifetime filter.
+- `recent` is cleared each publication and removal-only changed segments are retained with `recent=false`. Therefore an optimizer cannot use `recent` as its only changed-frontier signal.
+- `hasUnsupportedVoxel()` returns true if *any* voxel lacks known cells below, while the callers reject a component if it returns false. That test can delete an otherwise geometrically valid frontier after split/merge. Review the intended filtering semantics.
+- `isFrontierVoxel()` in the uploaded source considers unknown neighbors in **the same layer or below** (`dz=-1..0`), not only XY (`dz=0`). This differs from the earlier strict-XY definition. The optimizer does not reimplement upstream frontier acceptance.
+- If a previously seen frontier ID vanishes from the **complete** `FrontierArray`, no downstream optimizer can prove it should exist. Correct the segmentation ownership and removal rules if an ID vanishes outside dirty map cells.
+
+## Physical assumptions and limitations
+
+- The entire rotating/tilting UAV collision envelope **must fit inside a 0.5 m voxel** for the coarse BFS assumption to be collision-safe; check this before real flight.
+- The FOV model assumes yaw-level LiDAR unless transforms are incorporated; it does not model roll/pitch changes.
+- A bounded BFS can report zero reachable candidate centers because the frontier is outside its configured 25 m radius. If that is a concern, increase `reachability_max_distance` or let DSP handle long-distance route verification, but do not conflate local BFS with global reachability.
+- Spatial deltas are computed from the decoded full OctoMap; this adds CPU and RAM per map update but runs asynchronously. If your Octomap is rolling or resets unexpectedly, dropped segment IDs should be diagnosed upstream.
+- The changes are syntax/structure verified only; ROS 2 Jazzy compilation is not available in this environment.

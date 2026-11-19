@@ -1,0 +1,6 @@
+geometry_msgs/Point start
+geometry_msgs/Point[] goals
+---
+bool success
+bool[] reachable
+string message

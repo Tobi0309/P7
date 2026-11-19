@@ -1,0 +1,7 @@
+# Pose the robot should fly to: either the committed frontier viewpoint, or the
+# robot's own odometry pose when the selector requests a hold (REPLAN/FINISHED).
+geometry_msgs/PoseStamped pose
+---
+# The selector re-sends the same pose until a response arrives with success=true.
+# A newer command replaces one that has not been acknowledged yet.
+bool success

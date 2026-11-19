@@ -6,7 +6,7 @@ C++ ROS 2 node that extracts 3D frontier voxels from `octomap_msgs/msg/Octomap`,
 
 Set `octomap_topic` to the actual `octomap_msgs/msg/Octomap` topic from your mapper. The subscriber uses transient-local QoS; if your publisher is volatile, change the subscription QoS in the source to `rclcpp::QoS(1)`.
 
-The node compares each cumulative/full map with the previously received map and updates only the affected frontier segments when voxel states change. It collects changed voxels and their 26-neighborhood, together with the voxels from affected segments, runs frontier detection and segmentation on that subset, and retains unaffected segments. The OctoMap frame must match `world_frame`; `sensor_frame`, `robot_frame`, and range parameters remain available for compatibility but are not used to decide which segments are updated.
+The node compares each cumulative/full map with the previously received map and updates only the affected frontier segments when voxel states change. Known voxels are removed from an existing frontier, and newly discovered frontier voxels adjacent to it are added without re-segmenting the frontier. Splitting is considered only when voxels were added; if it produces multiple pieces, the piece whose centroid is closest to the previous frontier keeps its ID and all split pieces are marked `recent` for viewpoint optimization. New, unattached frontier components are segmented normally. The OctoMap frame must match `world_frame`; `sensor_frame`, `robot_frame`, and range parameters remain available for compatibility but are not used to decide which segments are updated.
 
 ### IntelliSense for C++ packages
 

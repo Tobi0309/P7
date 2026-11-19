@@ -1,0 +1,43 @@
+frontier_viewpoint_selection_node:
+  ros__parameters:
+    optimized_topic: /frontier_viewpoints
+    odometry_topic: /Odometry
+    dsp_cost_service: /dsp/path_cost
+    planning_failure_service: /dsp/planning_failure
+    finish_service: /frontier_viewpoint_selection/finish
+    goal_command_topic: /frontier_viewpoint_selection/goal_command
+
+    # The command topic publishes a new goal on commitment, and the robot's
+    # current odometry pose once when REPLAN (or FINISHED) requests a hold.
+    # The DSP-verified viewpoint visit order is logged when a goal is selected.
+    information_weight: 1.0
+    path_cost_weight: 0.03
+    path_distance_weight: 0.8
+    future_reward_weight: 0.25
+
+    max_rank_candidates: 8
+    pairwise_cost_candidates: 4
+    minimum_cost_coverage: 3
+    ranking_period_seconds: 3.0
+    path_cost_cache_ttl_seconds: 12.0
+    failed_path_retry_seconds: 10.0
+    dsp_service_timeout_seconds: 4.0
+    dsp_request_interval_seconds: 0.15
+    cost_origin_requery_distance: 1.5
+    cost_key_quantization: 0.5
+
+    # DSP sends failures by calling the service server at /dsp/planning_failure.
+    # An active navigation goal enters REPLAN upon an acknowledged notification.
+
+    missing_goal_grace_seconds: 3.0
+    enable_utility_preemption: false
+    minimum_goal_commit_seconds: 5.0
+    switch_utility_margin: 0.25
+    switch_confirmation_cycles: 3
+
+    navigation_no_progress_timeout_seconds: 50.0
+    navigation_progress_increment: 0.5
+    arrival_position_tolerance: 0.5
+    observation_settle_seconds: 2.0
+    visited_frontier_cooldown_seconds: 30.0
+    enable_diagnostics: true

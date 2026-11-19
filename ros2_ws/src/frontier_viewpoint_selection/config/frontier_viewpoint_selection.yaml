@@ -1,0 +1,74 @@
+frontier_viewpoint_selection_node:
+  ros__parameters:
+    optimized_topic: /frontier_viewpoints
+    odometry_topic: /Odometry
+    dsp_cost_service: /dsp/path_cost
+    planning_failure_service: /dsp/planning_failure
+    finish_service: /frontier_viewpoint_selection/finish
+    goal_command_service: /frontier_viewpoint_selection/goal_command
+
+    # The goal command service is called with a new goal on commitment, and with
+    # the robot's current odometry pose when REPLAN (or FINISHED) requests a hold.
+    # Each pose is re-sent until the server responds success=true; a request with
+    # no answer is abandoned and re-sent after the timeout. A newer command
+    # replaces one that has not been acknowledged yet.
+    goal_command_retry_seconds: 0.5
+    goal_command_timeout_seconds: 2.0
+
+    # The DSP-verified viewpoint visit order is logged when a goal is selected.
+    # Ranking is done here, not in the optimizer: the optimizer's score stays unchanged.
+    information_weight: 1.0
+    path_cost_weight: 0.03
+    path_distance_weight: 0.8
+
+    # Add a spatial Gaussian bonus to each viewpoint's original information score.
+    # Gaussian bonus = gaussian_weight * exp(-0.5 * ((dx^2+dy^2)/sigma_xy^2 + dz^2/sigma_z^2)).
+    # viewpoint_mean = arithmetic mean of currently eligible viewpoint positions.
+    # robot = robot's current position. fixed = specified fixed coordinates.
+    gaussian_mean_mode: viewpoint_mean
+    gaussian_weight: 15.0
+    gaussian_sigma_xy: 8.0
+    gaussian_sigma_z: 3.0
+    gaussian_fixed_mean_x: 0.0
+    gaussian_fixed_mean_y: 0.0
+    gaussian_fixed_mean_z: 0.0
+
+    # Bounded directed-route search uses DSP costs BETWEEN every pair in the
+    # pairwise shortlist. Reward at visit index k is discounted by factor^k.
+    # Explicitly consider nearby / straight-line-corridor intermediate stops.
+    route_visit_discount: 0.95
+    route_nearby_candidate_reserve: 2
+    route_corridor_candidate_reserve: 2
+    route_corridor_width_m: 3.0
+    # Once enough robot-to-viewpoint costs arrive, permit this wait to gather
+    # initial DSP pairwise edges before committing. No indefinite wait.
+    route_initial_pairwise_wait_seconds: 3.0
+    route_initial_required_pairwise_edges: 1
+
+    max_rank_candidates: 8
+    pairwise_cost_candidates: 8
+    minimum_cost_coverage: 3
+    ranking_period_seconds: 3.0
+    path_cost_cache_ttl_seconds: 12.0
+    pairwise_cost_cache_ttl_seconds: 90.0
+    failed_path_retry_seconds: 10.0
+    dsp_service_timeout_seconds: 4.0
+    dsp_request_interval_seconds: 0.15
+    cost_origin_requery_distance: 1.5
+    cost_key_quantization: 0.5
+
+    # DSP sends failures by calling the service server at /dsp/planning_failure.
+    # An active navigation goal enters REPLAN upon an acknowledged notification.
+
+    missing_goal_grace_seconds: 3.0
+    enable_utility_preemption: false
+    minimum_goal_commit_seconds: 5.0
+    switch_utility_margin: 0.25
+    switch_confirmation_cycles: 3
+
+    navigation_no_progress_timeout_seconds: 50.0
+    navigation_progress_increment: 0.5
+    arrival_position_tolerance: 0.5
+    observation_settle_seconds: 2.0
+    visited_frontier_cooldown_seconds: 30.0
+    enable_diagnostics: true
