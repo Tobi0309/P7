@@ -9,6 +9,13 @@ services:
     network_mode: host
     ipc: host
     privileged: true
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     environment:
       - DISPLAY=${DISPLAY}
       - ROS_DOMAIN_ID=42
