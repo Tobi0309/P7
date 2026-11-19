@@ -2,20 +2,40 @@ import rclpy
 import numpy as np
 
 from rclpy.node import Node
+from rclpy.time import Time
 from sensor_msgs_py import point_cloud2
 from sensor_msgs.msg import PointCloud2
 from sensor_msgs.msg import CameraInfo
+from tf2_ros import Buffer, TransformException, TransformListener
+
+
+def quaternion_to_matrix(q):
+    x, y, z, w = q.x, q.y, q.z, q.w
+    return np.array([
+        [1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
+        [2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
+        [2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
+    ])
 
 
 class PointCloudFOVFilter(Node):
     def __init__(self):
         super().__init__('pointcloud_fov_filter')
 
-        self.camera_extrinsic = np.array([
-            [-1, 0, 0, 0],
-            [0, 1, 0, 0],
-            [0, 0, 1, 0],
-        ])
+        # /cloud_registered_body is in FAST-LIO's `body` frame, which is the
+        # Mid-360 IMU frame, i.e. `body_imu` in the URDF. Look the camera up
+        # from `body_imu` rather than `body`: the two are only joined through
+        # camera_init, so TF would add the LIO/IMU-propagation pose offset.
+        self.imu_frame = self.declare_parameter('imu_frame', 'body_imu').value
+        self.camera_frame = self.declare_parameter('camera_frame', 'camera_color_optical_frame').value
+
+        # 3x4 [R|t] mapping IMU-frame points into camera_frame, filled from
+        # the URDF static TF (robot_state_publisher). camera_frame must be an
+        # optical frame (x right, y down, z forward), as CameraInfo K assumes.
+        self.camera_extrinsic = None
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+        self.extrinsic_timer = self.create_timer(0.5, self.lookup_camera_extrinsic)
 
         self.camera_intrinsic = np.zeros((3, 3))
         self.width = 1280
@@ -37,7 +57,30 @@ class PointCloudFOVFilter(Node):
             10
         )
 
+    def lookup_camera_extrinsic(self):
+        try:
+            transform = self.tf_buffer.lookup_transform(
+                self.camera_frame, self.imu_frame, Time())
+        except TransformException as e:
+            self.get_logger().warn(
+                f'Waiting for {self.imu_frame} -> {self.camera_frame} TF: {e}',
+                throttle_duration_sec=5.0)
+            return
+
+        t = transform.transform.translation
+        rotation = quaternion_to_matrix(transform.transform.rotation)
+        translation = np.array([t.x, t.y, t.z])
+
+        self.camera_extrinsic = np.hstack((rotation, translation.reshape(3, 1)))
+        self.extrinsic_timer.cancel()
+        self.get_logger().info(
+            f'Camera extrinsic ({self.imu_frame} -> {self.camera_frame}):\n'
+            f'{np.array2string(self.camera_extrinsic, precision=4, suppress_small=True)}')
+
     def pointcloud2_callback(self, pointcloud2_msg):
+        if self.camera_extrinsic is None:
+            return
+
         coordinates = np.array(
             list(point_cloud2.read_points(
                 pointcloud2_msg,

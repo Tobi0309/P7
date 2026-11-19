@@ -70,6 +70,11 @@ namespace ego_planner
     double goal_height_above_ground_{2.0};
     double goal_min_height_above_ground_{0.5};
     double goal_vertical_search_range_{2.0};
+    // true: use the goal's z (clamped to the map's flyable band); false: ground + goal_height_above_ground_
+    bool use_goal_z_{true};
+    // Yaw requested by the current manual goal; applied by traj_server after arriving.
+    double end_yaw_{0.0};
+    bool have_end_yaw_{false};
     FSM_EXEC_STATE exec_state_;
     int continously_called_times_{0};
 
@@ -103,7 +108,8 @@ namespace ego_planner
 
     /* helper functions */
     bool callReboundReplan(bool flag_use_poly_init, bool flag_randomPolyTraj); // front-end and back-end method
-    bool callEmergencyStop(Eigen::Vector3d stop_pos);                          // front-end and back-end method
+    bool callEmergencyStop(Eigen::Vector3d stop_pos, bool hold_goal_yaw = false); // front-end and back-end method
+    void attachGoalYaw(traj_utils::msg::Bspline &bspline, bool ends_at_goal) const;
     bool planFromGlobalTraj(const int trial_times = 1);
     bool planFromCurrentTraj(const int trial_times = 1);
 
@@ -113,7 +119,7 @@ namespace ego_planner
     void printFSMExecState();
 
     void readGivenWps();
-    void planNextWaypoint(const Eigen::Vector3d next_wp, bool is_goal_adjustment = false);
+    bool planNextWaypoint(const Eigen::Vector3d next_wp, bool is_goal_adjustment = false);
     void getLocalTarget();
 
     /* ROS functions */

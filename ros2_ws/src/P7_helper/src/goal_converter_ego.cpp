@@ -2,10 +2,12 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 
-class GoalConverter : public rclcpp::Node
+// Forwards goals (e.g. from RViz) directly to ego-planner on /move_base_simple/goal,
+// replacing the goal height with the drone's current altitude.
+class GoalConverterEgo : public rclcpp::Node
 {
 public:
-    GoalConverter() : Node("goal_converter")
+    GoalConverterEgo() : Node("goal_converter_ego")
     {
         odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
             "/Odometry_base_link", 10,
@@ -67,7 +69,7 @@ private:
 int main(int argc, char **argv)
 {
     rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<GoalConverter>());
+    rclcpp::spin(std::make_shared<GoalConverterEgo>());
     rclcpp::shutdown();
     return 0;
 }

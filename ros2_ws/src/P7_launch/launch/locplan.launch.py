@@ -68,10 +68,10 @@ def generate_launch_description():
     	parameters=[{'use_sim_time': True}],
     )
 
-    goal_converter = Node(
-	package='fast_lio',
-	executable='goal_converter',
-	name='goal_converter',
+    goal_converter_dsp = Node(
+	package='P7_helper',
+	executable='goal_converter_dsp',
+	name='goal_converter_dsp',
 	output='screen',
 	parameters=[{'use_sim_time': True}],
     )
@@ -105,7 +105,7 @@ def generate_launch_description():
         fastlio,
         imu_propagation,
 	    odometry_transformer,
-	    goal_converter,
+	    goal_converter_dsp,
 	    pos_cmd_to_px4,
         delayed_rosbag_player,
     ])

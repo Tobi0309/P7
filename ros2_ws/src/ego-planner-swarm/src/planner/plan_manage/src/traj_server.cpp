@@ -5,6 +5,8 @@
 #include "std_msgs/msg/empty.hpp"
 #include "visualization_msgs/msg/marker.hpp"
 #include <rclcpp/rclcpp.hpp>
+#include <algorithm>
+#include <cmath>
 
 rclcpp::Publisher<quadrotor_msgs::msg::PositionCommand>::SharedPtr pos_cmd_pub;
 
@@ -23,6 +25,11 @@ int traj_id_;
 // yaw control
 double last_yaw_, last_yaw_dot_;
 double time_forward_;
+
+// Goal yaw (from Bspline.yaw_pts) to turn to in place after the trajectory has finished.
+bool have_goal_yaw_ = false;
+double goal_yaw_ = 0.0;
+double goal_yaw_rate_ = 0.5; // rad/s
 
 void bsplineCallback(traj_utils::msg::Bspline::ConstPtr msg,rclcpp::Clock::SharedPtr clock)
 {
@@ -56,6 +63,11 @@ void bsplineCallback(traj_utils::msg::Bspline::ConstPtr msg,rclcpp::Clock::Share
   // UniformBspline yaw_traj(yaw_pts, msg->order, msg->yaw_dt);
   start_time_ = rclcpp::Time(msg->start_time,clock->get_clock_type());
   traj_id_ = msg->traj_id;
+
+  // Only trajectories that end at the goal carry a yaw; others keep the current yaw at the end.
+  have_goal_yaw_ = !msg->yaw_pts.empty();
+  if (have_goal_yaw_)
+    goal_yaw_ = std::atan2(std::sin(msg->yaw_pts[0]), std::cos(msg->yaw_pts[0]));
 
   traj_.clear();
   traj_.push_back(pos_traj);
@@ -159,6 +171,30 @@ std::pair<double, double> calculate_yaw(double t_cur, Eigen::Vector3d &pos, rclc
   return yaw_yawdot;
 }
 
+// Turn in place towards goal_yaw_ (shortest direction) at no more than goal_yaw_rate_.
+std::pair<double, double> turn_to_goal_yaw(rclcpp::Time &time_now, rclcpp::Time &time_last)
+{
+  const double dt = std::clamp((time_now - time_last).seconds(), 0.0, 0.1);
+  const double max_step = goal_yaw_rate_ * dt;
+  const double err = std::atan2(std::sin(goal_yaw_ - last_yaw_), std::cos(goal_yaw_ - last_yaw_));
+
+  double yaw, yawdot;
+  if (std::fabs(err) <= max_step)
+  {
+    yaw = goal_yaw_;
+    yawdot = 0.0;
+  }
+  else
+  {
+    yaw = last_yaw_ + std::copysign(max_step, err);
+    yaw = std::atan2(std::sin(yaw), std::cos(yaw));
+    yawdot = std::copysign(goal_yaw_rate_, err);
+  }
+  last_yaw_ = yaw;
+  last_yaw_dot_ = yawdot;
+  return {yaw, yawdot};
+}
+
 void cmdCallback(rclcpp::Clock::SharedPtr clock)
 {
   /* no publishing before receive traj_ */
@@ -193,8 +229,16 @@ void cmdCallback(rclcpp::Clock::SharedPtr clock)
     vel.setZero();
     acc.setZero();
 
-    yaw_yawdot.first = last_yaw_;
-    yaw_yawdot.second = 0;
+    if (have_goal_yaw_)
+    {
+      // Arrived at the goal: hold position and turn to the requested yaw.
+      yaw_yawdot = turn_to_goal_yaw(time_now, time_last);
+    }
+    else
+    {
+      yaw_yawdot.first = last_yaw_;
+      yaw_yawdot.second = 0;
+    }
 
     pos_f = pos;
   }
@@ -264,6 +308,8 @@ int main(int argc, char **argv)
 
   node->declare_parameter("traj_server/time_forward", -1.0);
   node->get_parameter("traj_server/time_forward", time_forward_);
+  node->declare_parameter("traj_server/goal_yaw_rate", 0.5);
+  node->get_parameter("traj_server/goal_yaw_rate", goal_yaw_rate_);
 
   last_yaw_ = 0.0;
   last_yaw_dot_ = 0.0;

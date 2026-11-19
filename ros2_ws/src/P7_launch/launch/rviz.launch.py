@@ -19,7 +19,7 @@ def generate_launch_description():
 
     declare_rviz_config = DeclareLaunchArgument(
         "rviz_config",
-        default_value=os.path.join(pkg_path, "rviz", "drone.rviz"),
+        default_value=os.path.join(pkg_path, "rviz", "fastlio.rviz"),
         description="Path to the RViz configuration file",
     )
     declare_use_sim_time = DeclareLaunchArgument(

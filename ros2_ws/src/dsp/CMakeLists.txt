@@ -25,6 +25,7 @@ find_package(octomap REQUIRED)
 find_package(DSL REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2 REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 
 include_directories(
     include
@@ -44,7 +45,8 @@ ament_target_dependencies(dsp
     Eigen3 
     DSL
     tf2
-    tf2_ros)
+    tf2_ros
+    tf2_geometry_msgs)
 ament_export_dependencies(eigen3_cmake_module)
 ament_export_dependencies(Eigen3 octomap)
 ament_export_libraries(DSL)

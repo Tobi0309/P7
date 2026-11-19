@@ -139,15 +139,6 @@ ament_target_dependencies(odometry_transformer
   tf2_ros
 )
 
-# RViz 2D goal to UAV waypoint converter
-add_executable(goal_converter src/goal_converter.cpp)
-
-ament_target_dependencies(goal_converter
-  rclcpp
-  geometry_msgs
-  nav_msgs
-)
-
 # PX4 external odometry bridge
 add_executable(px4_odometry_bridge src/px4_odometry_bridge.cpp)
 
@@ -167,7 +158,6 @@ install(TARGETS
   fastlio_mapping
   imu_propagation
   odometry_transformer
-  goal_converter
   px4_odometry_bridge
   DESTINATION lib/${PROJECT_NAME}
 )

@@ -124,6 +124,9 @@ def generate_launch_description():
             {'fsm/emergency_time': 1.0},
             {'fsm/realworld_experiment': False},
             {'fsm/fail_safe': True},
+            # Use the goal's z (e.g. from DSP), clamped to the flyable band. False = fixed
+            # height of fsm/goal_height_above_ground above grid_map/ground_height.
+            {'fsm/use_goal_z': True},
             
             {'fsm/waypoint_num': point_num},
             {'fsm/waypoint0_x': point0_x},
@@ -224,7 +227,9 @@ def generate_launch_description():
         ],
     parameters=[
         {'use_sim_time': ParameterValue(use_sim_time, value_type=bool)},
-        {'traj_server/time_forward': 1.0}
+        {'traj_server/time_forward': 1.0},
+        # Yaw rate [rad/s] used to turn in place to the goal orientation after arriving.
+        {'traj_server/goal_yaw_rate': 0.5}
         ]
     )
 

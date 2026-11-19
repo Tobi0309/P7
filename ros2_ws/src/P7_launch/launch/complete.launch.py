@@ -31,18 +31,41 @@ def generate_launch_description():
     ego_planner = include('ego_planner', 'advanced_param_live.launch.py')
     dsp = include('dsp', 'dsp_launch.py')
     rviz = include('P7_launch', 'rviz.launch.py', condition=IfCondition(launch_rviz))
+    px4_controller = include('P7_px4_fastlio_bridge', 'px4_fastlio_bridge.launch.py', launch_arguments={'use_sim_time': 'true'}.items())
 
-    drone_velocity_mpc = Node(
+
+
+    pos_cmd_to_px4 = Node(
         package='P7_control_io_handler',
-        executable='drone_velocity_mpc',
+        executable='pos_cmd_to_px4',
+        name='pos_cmd_to_px4',
         output='screen',
+        parameters=[{
+            'use_sim_time': True,
+            'position_command_topic': '/drone_0_planning/pos_cmd',
+            'px4_odometry_topic': '/fmu/out/vehicle_odometry',
+        }],
     )
 
+    # Goal on /goal -> DSP (dsp/set_goal service) at a fixed height
+    goal_converter_dsp = Node(
+        package='P7_helper',
+        executable='goal_converter_dsp',
+        name='goal_converter_dsp',
+        output='screen',
+        parameters=[{
+            'use_sim_time': True,
+            'goal_height': 2.0,
+        }],
+    )
+    
     return LaunchDescription([
         declare_launch_rviz,
         mapping,
         ego_planner,
         dsp,
-        drone_velocity_mpc,
+        goal_converter_dsp,
+        pos_cmd_to_px4,
         rviz,
+        px4_controller,
     ])
