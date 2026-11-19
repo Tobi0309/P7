@@ -23,7 +23,7 @@ def generate_launch_description():
     fy = LaunchConfiguration('fy', default=387.229248046875)
     
     max_vel = LaunchConfiguration('max_vel', default=0.5)
-    max_acc = LaunchConfiguration('max_acc', default=1.0)
+    max_acc = LaunchConfiguration('max_acc', default=0.5)
     planning_horizon = LaunchConfiguration('planning_horizon', default=7.5)
     
     point_num = LaunchConfiguration('point_num', default=1)
@@ -149,10 +149,10 @@ def generate_launch_description():
             {'grid_map/local_update_range_x': 5.5},
             {'grid_map/local_update_range_y': 5.5},
             {'grid_map/local_update_range_z': 4.5},
-            {'grid_map/obstacles_inflation': 0.5},
+            {'grid_map/obstacles_inflation': 0.36},
             # Vertical inflation [m], separate from the horizontal one above.
             # Rounded up to whole cells; 0.099 = 1 cell (same as before).
-            {'grid_map/obstacles_inflation_z': 0.3},
+            {'grid_map/obstacles_inflation_z': 0.4},
             {'grid_map/local_map_margin': 10},
             {'grid_map/ground_height': -0.01},
             # camera parameter

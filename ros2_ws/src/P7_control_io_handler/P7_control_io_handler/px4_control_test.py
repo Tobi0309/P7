@@ -2,6 +2,7 @@ import math
 import time
 
 import rclpy
+from geometry_msgs.msg import PoseStamped
 from px4_msgs.msg import (
     OffboardControlMode,
     TrajectorySetpoint,
@@ -21,6 +22,7 @@ class PosCmdToPx4(Node):
         super().__init__("pos_cmd_to_px4")
 
         self.declare_parameter("position_command_topic", "/drone_0_planning/pos_cmd")
+        self.declare_parameter("goal_topic", "/move_base_simple/goal")
         self.declare_parameter("px4_odometry_topic", "/fmu/out/vehicle_odometry")
         self.declare_parameter("px4_odom_timeout_sec", 0.25)
         self.px4_odom_timeout_sec = float(self.get_parameter("px4_odom_timeout_sec").value)
@@ -32,6 +34,7 @@ class PosCmdToPx4(Node):
         self.last_arm_command_us = 0
         self.command_interval_us = 200_000
         self.offboard_requested = False
+        self.goal_received = False
         self.last_px4_odom_wall_time = None
         self.px4_reset_counter = None
         self.px4_time_anchor = None
@@ -53,6 +56,12 @@ class PosCmdToPx4(Node):
             self.position_command_callback,
             10,
         )
+        self.goal_subscription = self.create_subscription(
+            PoseStamped,
+            str(self.get_parameter("goal_topic").value),
+            self.goal_callback,
+            10,
+        )
         self.px4_odometry_subscription = self.create_subscription(
             VehicleOdometry,
             str(self.get_parameter("px4_odometry_topic").value),
@@ -69,6 +78,11 @@ class PosCmdToPx4(Node):
 
     def position_command_callback(self, message: PositionCommand):
         self.latest_position_command = message
+
+    def goal_callback(self, _message: PoseStamped):
+        if not self.goal_received:
+            self.get_logger().info("Goal received by EGO-Planner; PX4 offboard may be requested.")
+        self.goal_received = True
         self.offboard_requested = True
 
     def px4_odometry_callback(self, message: VehicleOdometry):

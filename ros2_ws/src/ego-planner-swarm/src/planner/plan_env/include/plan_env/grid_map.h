@@ -100,6 +100,10 @@ struct MappingData
 
   std::vector<double> occupancy_buffer_;
   std::vector<char> occupancy_buffer_inflate_;
+  // Persistent cloud obstacles and their source voxels. Separate from the
+  // depth-fusion buffers so depth updates cannot erase accumulated cloud hits.
+  std::vector<char> cloud_occupied_buffer_;
+  std::vector<char> cloud_hit_buffer_;
 
   // camera position and pose data
 
@@ -197,6 +201,8 @@ public:
   inline double getResolution();
   Eigen::Vector3d getOrigin();
   int getVoxelNum();
+  double getGroundHeight() const { return mp_.ground_height_; }
+  double getVirtualCeilHeight() const { return mp_.virtual_ceil_height_; }
   bool getOdomDepthTimeout() { return md_.flag_depth_odom_timeout_; }
 
   typedef std::shared_ptr<GridMap> Ptr;
@@ -322,7 +328,9 @@ inline bool GridMap::isKnownFree(const Eigen::Vector3i &id)
 
   // return md_.occupancy_buffer_[adr] >= mp_.clamp_min_log_ &&
   //     md_.occupancy_buffer_[adr] < mp_.min_occupancy_log_;
-  return md_.occupancy_buffer_[adr] >= mp_.clamp_min_log_ && md_.occupancy_buffer_inflate_[adr] == 0;
+  return md_.occupancy_buffer_[adr] >= mp_.clamp_min_log_ &&
+         md_.occupancy_buffer_inflate_[adr] == 0 &&
+         md_.cloud_occupied_buffer_[adr] == 0;
 }
 
 inline bool GridMap::isKnownOccupied(const Eigen::Vector3i &id)
@@ -331,7 +339,8 @@ inline bool GridMap::isKnownOccupied(const Eigen::Vector3i &id)
   boundIndex(id1);
   int adr = toAddress(id1);
 
-  return md_.occupancy_buffer_inflate_[adr] == 1;
+  return md_.occupancy_buffer_inflate_[adr] == 1 ||
+         md_.cloud_occupied_buffer_[adr] == 1;
 }
 
 inline void GridMap::setOccupied(Eigen::Vector3d pos)
@@ -381,7 +390,8 @@ inline int GridMap::getInflateOccupancy(Eigen::Vector3d pos)
   Eigen::Vector3i id;
   posToIndex(pos, id);
 
-  return int(md_.occupancy_buffer_inflate_[toAddress(id)]);
+  int adr = toAddress(id);
+  return int(md_.occupancy_buffer_inflate_[adr] || md_.cloud_occupied_buffer_[adr]);
 }
 
 inline int GridMap::getOccupancy(Eigen::Vector3i id)

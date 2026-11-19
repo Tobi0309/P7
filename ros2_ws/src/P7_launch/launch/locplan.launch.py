@@ -76,6 +76,19 @@ def generate_launch_description():
 	parameters=[{'use_sim_time': True}],
     )
 
+    pos_cmd_to_px4 = Node(
+        package='P7_control_io_handler',
+        executable='pos_cmd_to_px4',
+        name='pos_cmd_to_px4',
+        output='screen',
+        parameters=[{
+            'use_sim_time': True,
+            'position_command_topic': '/drone_0_planning/pos_cmd',
+            'goal_topic': '/move_base_simple/goal',
+            'px4_odometry_topic': '/fmu/out/vehicle_odometry',
+        }],
+    )
+
     rosbag_player = ExecuteProcess(
         cmd=['ros2', 'bag', 'play', bag_path, '--clock'],
         output='screen',
@@ -93,6 +106,7 @@ def generate_launch_description():
         imu_propagation,
 	    odometry_transformer,
 	    goal_converter,
+	    pos_cmd_to_px4,
         delayed_rosbag_player,
     ])
 
