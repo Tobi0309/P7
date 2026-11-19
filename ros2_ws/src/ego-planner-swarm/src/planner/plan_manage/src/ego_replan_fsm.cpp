@@ -1,5 +1,6 @@
 
 #include <ego_planner/ego_replan_fsm.h>
+#include <cmath>
 
 namespace ego_planner
 {
@@ -22,6 +23,9 @@ namespace ego_planner
     node_->declare_parameter("fsm/emergency_time", 1.0);
     node_->declare_parameter("fsm/realworld_experiment", false);
     node_->declare_parameter("fsm/fail_safe", true);
+    node_->declare_parameter("fsm/goal_height_above_ground", 2.0);
+    node_->declare_parameter("fsm/goal_min_height_above_ground", 0.5);
+    node_->declare_parameter("fsm/goal_vertical_search_range", 2.0);
 
     node_->get_parameter("fsm/flight_type", target_type_);
     node_->get_parameter("fsm/thresh_replan_time", replan_thresh_);
@@ -31,6 +35,9 @@ namespace ego_planner
     node_->get_parameter("fsm/emergency_time", emergency_time_);
     node_->get_parameter("fsm/realworld_experiment", flag_realworld_experiment_);
     node_->get_parameter("fsm/fail_safe", enable_fail_safe_);
+    node_->get_parameter("fsm/goal_height_above_ground", goal_height_above_ground_);
+    node_->get_parameter("fsm/goal_min_height_above_ground", goal_min_height_above_ground_);
+    node_->get_parameter("fsm/goal_vertical_search_range", goal_vertical_search_range_);
 
     have_trigger_ = !flag_realworld_experiment_;
 
@@ -183,8 +190,11 @@ namespace ego_planner
     planNextWaypoint(wps_[wp_id_]);
   }
 
-  void EGOReplanFSM::planNextWaypoint(const Eigen::Vector3d next_wp)
+  void EGOReplanFSM::planNextWaypoint(const Eigen::Vector3d next_wp, bool is_goal_adjustment)
   {
+    if (!is_goal_adjustment)
+      goal_height_adjustment_attempted_ = false;
+
     bool success = false;
     success = planner_manager_->planGlobalTraj(odom_pos_, odom_vel_, Eigen::Vector3d::Zero(), next_wp, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
 
@@ -238,7 +248,11 @@ namespace ego_planner
 
     init_pt_ = odom_pos_;
 
-    Eigen::Vector3d end_wp(msg->pose.position.x, msg->pose.position.y, msg->pose.position.z);
+    const double goal_z = planner_manager_->grid_map_->getGroundHeight() + goal_height_above_ground_;
+    Eigen::Vector3d end_wp(msg->pose.position.x, msg->pose.position.y, goal_z);
+
+    RCLCPP_INFO(node_->get_logger(), "Setting goal %.2f m above ground at z=%.2f",
+                goal_height_above_ground_, goal_z);
 
     planNextWaypoint(end_wp);
   }
@@ -745,6 +759,54 @@ odom_vel_ = q * vel_body;
 
     LocalTrajData *info = &planner_manager_->local_data_;
     auto map = planner_manager_->grid_map_;
+
+    // Keep manual goals at the configured height above ground. If an obstacle
+    // occupies that voxel, search vertically for the nearest free voxel.
+    if (have_target_ && !goal_height_adjustment_attempted_ &&
+        map->isInMap(end_pt_) && map->getInflateOccupancy(end_pt_))
+    {
+      goal_height_adjustment_attempted_ = true;
+      const double resolution = map->getResolution();
+      const double min_goal_z = map->getGroundHeight() + goal_min_height_above_ground_;
+      const double max_goal_z = map->getVirtualCeilHeight() > map->getGroundHeight()
+                                    ? map->getVirtualCeilHeight()
+                                    : map->getGroundHeight() + goal_height_above_ground_ + goal_vertical_search_range_;
+      const int search_steps = static_cast<int>(std::ceil(goal_vertical_search_range_ / resolution));
+      bool found_free_goal = false;
+
+      for (int step = 1; step <= search_steps && !found_free_goal; ++step)
+      {
+        const double offset = step * resolution;
+        const double candidate_heights[] = {end_pt_.z() + offset, end_pt_.z() - offset};
+        for (double candidate_z : candidate_heights)
+        {
+          if (candidate_z < min_goal_z || candidate_z >= max_goal_z)
+            continue;
+
+          Eigen::Vector3d candidate_goal(end_pt_.x(), end_pt_.y(), candidate_z);
+          if (!map->isInMap(candidate_goal) || map->getInflateOccupancy(candidate_goal))
+            continue;
+
+          planNextWaypoint(candidate_goal, true);
+          if ((end_pt_ - candidate_goal).norm() < 1e-6)
+          {
+            RCLCPP_WARN(node_->get_logger(),
+                        "Goal voxel is occupied; moved goal to free height z=%.2f.", candidate_z);
+            found_free_goal = true;
+            break;
+          }
+        }
+      }
+
+      if (found_free_goal)
+        return;
+      else
+      {
+        RCLCPP_WARN(node_->get_logger(),
+                    "Goal voxel is occupied and no free height was found within %.1f m; keeping the goal.",
+                    goal_vertical_search_range_);
+      }
+    }
     
     if (exec_state_ == WAIT_TARGET || info->start_time_.seconds() < 1e-5)
       return;

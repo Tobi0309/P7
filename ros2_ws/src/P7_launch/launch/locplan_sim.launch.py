@@ -46,6 +46,16 @@ def generate_launch_description():
         }.items()
     )
 
+    octomap = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            os.path.join(
+                get_package_share_directory('P7_launch'),
+                'launch',
+                'octomap.launch.py',
+            )
+        )
+    )
+
     imu_propagation = Node(
         package='fast_lio',
         executable='imu_propagation',
@@ -78,6 +88,7 @@ def generate_launch_description():
         parameters=[{
             'use_sim_time': True,
             'position_command_topic': '/drone_0_planning/pos_cmd',
+            'goal_topic': '/move_base_simple/goal',
             'px4_odometry_topic': '/fmu/out/vehicle_odometry',
         }],
     )
@@ -86,6 +97,7 @@ def generate_launch_description():
         declare_rviz_config,
         rviz,
         fastlio,
+        octomap,
         imu_propagation,
         odometry_transformer,
         goal_converter,

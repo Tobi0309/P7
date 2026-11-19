@@ -119,6 +119,8 @@ void GridMap::initMap(rclcpp::Node::SharedPtr node)
 
   md_.occupancy_buffer_ = vector<double>(buffer_size, mp_.clamp_min_log_ - mp_.unknown_flag_);
   md_.occupancy_buffer_inflate_ = vector<char>(buffer_size, 0);
+  md_.cloud_occupied_buffer_ = vector<char>(buffer_size, 0);
+  md_.cloud_hit_buffer_ = vector<char>(buffer_size, 0);
 
   md_.count_hit_and_miss_ = vector<short>(buffer_size, 0);
   md_.count_hit_ = vector<short>(buffer_size, 0);
@@ -862,6 +864,8 @@ void GridMap::rollMapIfNeeded()
         mp_.clamp_min_log_ - mp_.unknown_flag_;
 
     md_.occupancy_buffer_inflate_[address] = 0;
+    md_.cloud_occupied_buffer_[address] = 0;
+    md_.cloud_hit_buffer_[address] = 0;
     md_.count_hit_and_miss_[address] = 0;
     md_.count_hit_[address] = 0;
     md_.flag_rayend_[address] = -1;
@@ -940,9 +944,6 @@ void GridMap::cloudCallback(const sensor_msgs::msg::PointCloud2::ConstPtr &img)
 
   rollMapIfNeeded();
 
-  this->resetBuffer(md_.camera_pos_ - mp_.local_update_range_,
-                    md_.camera_pos_ + mp_.local_update_range_);
-
   pcl::PointXYZ pt;
   Eigen::Vector3d p3d, p3d_inf;
 
@@ -976,6 +977,19 @@ void GridMap::cloudCallback(const sensor_msgs::msg::PointCloud2::ConstPtr &img)
         fabs(devi(2)) < mp_.local_update_range_(2))
     {
 
+      // Registered scans repeat many of the same surface voxels. Inflate a
+      // source voxel only on its first observation; the occupied voxel layer
+      // persists until the rolling map clears that area.
+      Eigen::Vector3i hit_id;
+      posToIndex(p3d, hit_id);
+      if (!isInMap(hit_id))
+        continue;
+
+      const int hit_address = toAddress(hit_id);
+      if (md_.cloud_hit_buffer_[hit_address] != 0)
+        continue;
+      md_.cloud_hit_buffer_[hit_address] = 1;
+
       /* inflate the point */
       // 点云膨胀
       for (int x = -inf_step; x <= inf_step; ++x)
@@ -1002,7 +1016,7 @@ void GridMap::cloudCallback(const sensor_msgs::msg::PointCloud2::ConstPtr &img)
 
             int idx_inf = toAddress(inf_pt);
 
-            md_.occupancy_buffer_inflate_[idx_inf] = 1;
+            md_.cloud_occupied_buffer_[idx_inf] = 1;
           }
     }
   }
@@ -1108,7 +1122,9 @@ void GridMap::publishMapInflate(bool all_info)
     for (int y = min_cut(1); y <= max_cut(1); ++y)
       for (int z = min_cut(2); z <= max_cut(2); ++z)
       {
-        if (md_.occupancy_buffer_inflate_[toAddress(x, y, z)] == 0)
+        const int address = toAddress(x, y, z);
+        if (md_.occupancy_buffer_inflate_[address] == 0 &&
+            md_.cloud_occupied_buffer_[address] == 0)
           continue;
 
         Eigen::Vector3d pos;

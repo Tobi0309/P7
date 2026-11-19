@@ -66,6 +66,10 @@ namespace ego_planner
 
     /* planning data */
     bool have_trigger_, have_target_, have_odom_, have_new_target_, have_recv_pre_agent_;
+    bool goal_height_adjustment_attempted_{false};
+    double goal_height_above_ground_{2.0};
+    double goal_min_height_above_ground_{0.5};
+    double goal_vertical_search_range_{2.0};
     FSM_EXEC_STATE exec_state_;
     int continously_called_times_{0};
 
@@ -109,7 +113,7 @@ namespace ego_planner
     void printFSMExecState();
 
     void readGivenWps();
-    void planNextWaypoint(const Eigen::Vector3d next_wp);
+    void planNextWaypoint(const Eigen::Vector3d next_wp, bool is_goal_adjustment = false);
     void getLocalTarget();
 
     /* ROS functions */
