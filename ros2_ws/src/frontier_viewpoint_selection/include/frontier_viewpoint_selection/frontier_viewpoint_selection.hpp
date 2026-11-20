@@ -1,8 +1,8 @@
 #pragma once
 
 #include <dsp_interfaces/srv/path_cost.hpp>
+#include <dsp_interfaces/srv/set_goal.hpp>
 #include <frontier_viewpoint_optimizer/msg/optimized_frontier_array.hpp>
-#include <frontier_viewpoint_selection/srv/goal_command.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -36,7 +36,7 @@ private:
     using View = frontier_viewpoint_optimizer::msg::OptimizedFrontier;
     using Array = frontier_viewpoint_optimizer::msg::OptimizedFrontierArray;
     using PathCost = dsp_interfaces::srv::PathCost;
-    using GoalCommand = frontier_viewpoint_selection::srv::GoalCommand;
+    using SetGoal = dsp_interfaces::srv::SetGoal;
     using Trigger = std_srvs::srv::Trigger;
     using PairKey = std::array<int64_t, 6>;
 
@@ -102,7 +102,7 @@ private:
     void sendCommand(const geometry_msgs::msg::PoseStamped &pose);
     void cancelCommand();
     void serviceCommand();
-    void commandResponse(uint64_t token, rclcpp::Client<GoalCommand>::SharedFuture future);
+    void commandResponse(uint64_t token, rclcpp::Client<SetGoal>::SharedFuture future);
     void startGoal(uint32_t id);
     void abandonGoal(const char *reason);
     void completeGoal();
@@ -119,7 +119,7 @@ private:
     rclcpp::Client<PathCost>::SharedPtr cost_client_;
     rclcpp::Service<Trigger>::SharedPtr planning_failure_service_;
     rclcpp::Service<Trigger>::SharedPtr finish_service_;
-    rclcpp::Client<GoalCommand>::SharedPtr command_client_;
+    rclcpp::Client<SetGoal>::SharedPtr command_client_;  // DSP /dsp/set_goal
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr state_pub_;
     rclcpp::TimerBase::SharedPtr timer_;
     rclcpp::TimerBase::SharedPtr heartbeat_timer_;
@@ -165,7 +165,7 @@ private:
     Clock::time_point cost_request_started_{};
     Clock::time_point last_cost_request_sent_{};
 
-    // Latest goal/hold pose; re-sent until the server answers success=true.
+    // Latest goal/hold pose; re-sent to DSP's set_goal service until it answers success=true.
     std::optional<geometry_msgs::msg::PoseStamped> pending_command_;
     bool command_inflight_{false};
     uint64_t command_request_token_{0};

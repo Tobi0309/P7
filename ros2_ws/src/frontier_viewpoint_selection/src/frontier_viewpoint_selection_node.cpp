@@ -40,7 +40,7 @@ FrontierViewpointSelection::FrontierViewpointSelection() : rclcpp::Node("frontie
     cost_service_ = declare_parameter<std::string>("dsp_cost_service", "/dsp/path_cost");
     planning_failure_service_name_ = declare_parameter<std::string>("planning_failure_service", "/dsp/planning_failure");
     finish_service_name_ = declare_parameter<std::string>("finish_service", "/frontier_viewpoint_selection/finish");
-    command_service_ = declare_parameter<std::string>("goal_command_service", "/frontier_viewpoint_selection/goal_command");
+    command_service_ = declare_parameter<std::string>("dsp_set_goal_service", "/dsp/set_goal");
     command_retry_ = declare_parameter<double>("goal_command_retry_seconds", 0.5);
     command_timeout_ = declare_parameter<double>("goal_command_timeout_seconds", 2.0);
     information_weight_ = declare_parameter<double>("information_weight", 1.0);
@@ -123,12 +123,12 @@ FrontierViewpointSelection::FrontierViewpointSelection() : rclcpp::Node("frontie
 
     finish_service_ = create_service<Trigger>(finish_service_name_, std::bind(&FrontierViewpointSelection::finishCb, this, std::placeholders::_1, std::placeholders::_2));
 
-    command_client_ = create_client<GoalCommand>(command_service_);
+    command_client_ = create_client<SetGoal>(command_service_);
     state_pub_ = create_publisher<std_msgs::msg::String>("~/state", rclcpp::QoS(10));
     timer_ = create_wall_timer(std::chrono::milliseconds(200), std::bind(&FrontierViewpointSelection::tick, this));
     registerTop();
     heartbeat_timer_ = create_wall_timer(std::chrono::seconds(3), std::bind(&FrontierViewpointSelection::heartbeatCb, this));
-    RCLCPP_INFO(get_logger(), "Viewpoint selector started: DSP pairwise route optimization, Gaussian mean=%s weight=%.2f, odometry arrival %.2f m, finish service %s, goal command service %s (retry %.2f s)", gaussian_mean_mode_.c_str(), gaussian_weight_, arrival_tolerance_, finish_service_name_.c_str(), command_service_.c_str(), command_retry_);
+    RCLCPP_INFO(get_logger(), "Viewpoint selector started: DSP pairwise route optimization, Gaussian mean=%s weight=%.2f, odometry arrival %.2f m, finish service %s, DSP set_goal service %s (retry %.2f s)", gaussian_mean_mode_.c_str(), gaussian_weight_, arrival_tolerance_, finish_service_name_.c_str(), command_service_.c_str(), command_retry_);
 }
 
 FrontierViewpointSelection::~FrontierViewpointSelection() {
@@ -308,43 +308,49 @@ void FrontierViewpointSelection::serviceCommand() {
         command_client_->remove_pending_request(command_request_id_);
         ++command_request_token_;
         command_inflight_ = false;
-        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "Goal command service %s did not answer within %.2f s; re-sending.", command_service_.c_str(), command_timeout_);
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "DSP set_goal service %s did not answer within %.2f s; re-sending.", command_service_.c_str(), command_timeout_);
     } else if (since_sent < command_retry_) {
         return;
     }
     if (!command_client_->service_is_ready()) {
-        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "Waiting for goal command service %s.", command_service_.c_str());
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "Waiting for DSP set_goal service %s.", command_service_.c_str());
         return;
     }
-    auto request = std::make_shared<GoalCommand::Request>();
-    request->pose = *pending_command_;
+    auto request = std::make_shared<SetGoal::Request>();
+    request->goal = *pending_command_;
     const uint64_t token = ++command_request_token_;
     command_inflight_ = true;
     command_last_sent_ = current;
     ++command_attempts_;
-    const auto pending = command_client_->async_send_request(request, [this, token](rclcpp::Client<GoalCommand>::SharedFuture future) { commandResponse(token, future); });
+    const auto pending = command_client_->async_send_request(request, [this, token](rclcpp::Client<SetGoal>::SharedFuture future) { commandResponse(token, future); });
     command_request_id_ = pending.request_id;
 }
 
-void FrontierViewpointSelection::commandResponse(uint64_t token, rclcpp::Client<GoalCommand>::SharedFuture future) {
+void FrontierViewpointSelection::commandResponse(uint64_t token, rclcpp::Client<SetGoal>::SharedFuture future) {
     if (!command_inflight_ || token != command_request_token_) {
         return;  // Superseded, cancelled or timed out.
     }
     command_inflight_ = false;
     bool success = false;
+    std::string message;
     try {
         const auto response = future.get();
         success = response && response->success;
+        if (response) {
+            message = response->message;
+        }
     } catch (const std::exception &error) {
-        RCLCPP_WARN(get_logger(), "Goal command service exception: %s", error.what());
+        RCLCPP_WARN(get_logger(), "DSP set_goal service exception: %s", error.what());
     }
     const auto &p = pending_command_->pose.position;
     if (success) {
-        RCLCPP_INFO(get_logger(), "Goal command (%.2f, %.2f, %.2f) acknowledged after %u attempt(s).", p.x, p.y, p.z, command_attempts_);
+        // success=true only means DSP accepted the goal; DSP reports later planning failures
+        // separately through the planning failure service.
+        RCLCPP_INFO(get_logger(), "Goal (%.2f, %.2f, %.2f) accepted by DSP after %u attempt(s): %s", p.x, p.y, p.z, command_attempts_, message.c_str());
         pending_command_.reset();
         return;
     }
-    RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 5000, "Goal command (%.2f, %.2f, %.2f) not acknowledged yet (attempt %u); re-sending every %.2f s.", p.x, p.y, p.z, command_attempts_, command_retry_);
+    RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 5000, "Goal (%.2f, %.2f, %.2f) not accepted by DSP yet (attempt %u): %s; re-sending every %.2f s.", p.x, p.y, p.z, command_attempts_, message.c_str(), command_retry_);
 }
 
 FrontierViewpointSelection::PairKey FrontierViewpointSelection::makeKey(const Vector &from, const Vector &to) const {

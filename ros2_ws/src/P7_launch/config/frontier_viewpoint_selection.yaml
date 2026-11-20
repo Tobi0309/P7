@@ -5,13 +5,13 @@ frontier_viewpoint_selection_node:
     dsp_cost_service: /dsp/path_cost
     planning_failure_service: /dsp/planning_failure
     finish_service: /frontier_viewpoint_selection/finish
-    goal_command_service: /frontier_viewpoint_selection/goal_command
+    dsp_set_goal_service: /dsp/set_goal
 
-    # The goal command service is called with a new goal on commitment, and with
-    # the robot's current odometry pose when REPLAN (or FINISHED) requests a hold.
-    # Each pose is re-sent until the server responds success=true; a request with
-    # no answer is abandoned and re-sent after the timeout. A newer command
-    # replaces one that has not been acknowledged yet.
+    # DSP's set_goal service (dsp_interfaces/srv/SetGoal) is called with a new goal
+    # on commitment, and with the robot's current odometry pose when REPLAN (or
+    # FINISHED) requests a hold. Each pose is re-sent until DSP responds
+    # success=true; a request with no answer is abandoned and re-sent after the
+    # timeout. A newer command replaces one that has not been acknowledged yet.
     goal_command_retry_seconds: 0.5
     goal_command_timeout_seconds: 2.0
 

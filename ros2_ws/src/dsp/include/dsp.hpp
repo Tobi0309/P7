@@ -10,6 +10,7 @@
 
 #include "dsp_interfaces/srv/path_cost.hpp"
 #include "dsp_interfaces/srv/set_goal.hpp"
+#include "std_srvs/srv/trigger.hpp"
 
 #include "tf2/exceptions.h"
 #include "tf2_ros/transform_listener.h"
@@ -30,6 +31,8 @@
 #include <algorithm>
 #include <cstdint>
 #include <functional>
+#include <mutex>
+#include <string>
 #include <vector>
 #include <Eigen/Dense>
 #include <cmath>
@@ -75,6 +78,8 @@ private:
     float path_distance(const nav_msgs::msg::Path path);
     float point_distance(geometry_msgs::msg::Point p0, geometry_msgs::msg::Point p1);
     bool setSG(Eigen::Vector3d grid_start, Eigen::Vector3d grid_goal);
+    // Logs the failure and notifies /dsp/planning_failure (served by frontier_viewpoint_selection).
+    void reportPlanningFailure(const std::string &message);
 
     // Height map:
     void buildHeightMap();
@@ -110,6 +115,9 @@ private:
 
     rclcpp::Service<dsp_interfaces::srv::PathCost>::SharedPtr cost_srv_;
     rclcpp::Service<dsp_interfaces::srv::SetGoal>::SharedPtr set_goal_srv_;
+    rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr planning_failure_client_;
+    rclcpp::TimerBase::SharedPtr ros2top_timer_;
+    bool ros2top_registered_{false};
 
     // dsp variables
     std::shared_ptr<dsl::Grid3d> grid_;
@@ -148,10 +156,6 @@ private:
 
     Eigen::Vector3d start_pos;
     Eigen::Vector3d goal_pos;
-    Eigen::Vector3d last_grid_start;
-    Eigen::Vector3d last_grid_goal;
-    bool has_last_grid_start = false;
-    bool has_last_grid_goal = false;
     bool grid_built = false;
     Eigen::Vector3d pmin;
 
@@ -166,6 +170,10 @@ private:
 
     std::shared_ptr<tf2_ros::TransformListener> tf_listener{nullptr};
     std::unique_ptr<tf2_ros::Buffer> tf_buffer;
+
+    // Taken at every callback entry point (map, services, timers, start); the helpers they call
+    // assume it is already held, so never lock it again below an entry point.
+    std::mutex planning_mutex_;
 };
 
 } // namespace
