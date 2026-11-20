@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>frontier_viewpoint_selection</name>
+  <version>0.2.0</version>
+  <description>DSP-cost-ranked committed frontier viewpoint selection with odometry arrival and Trigger services.</description>
+  <maintainer email="maintainer@example.com">Package Maintainer</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>dsp_interfaces</depend>
+  <depend>frontier_viewpoint_optimizer</depend>
+  <depend>ros2top</depend>
+  <depend>nlohmann_json</depend>
+  <depend>eigen3_cmake_module</depend>
+  <depend>eigen</depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

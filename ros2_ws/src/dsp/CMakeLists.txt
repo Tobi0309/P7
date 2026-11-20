@@ -17,6 +17,7 @@ find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(dsp_interfaces REQUIRED)
 find_package(eigen3_cmake_module REQUIRED)
 find_package(Eigen3 REQUIRED)
@@ -25,6 +26,8 @@ find_package(octomap REQUIRED)
 find_package(DSL REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2 REQUIRED)
+find_path(ROS2TOP_INCLUDE_DIR ros2top/ros2top.hpp REQUIRED)
+find_package(nlohmann_json REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 
 include_directories(
@@ -40,6 +43,7 @@ ament_target_dependencies(dsp
     rclcpp 
     dsp_interfaces 
     visualization_msgs 
+    std_srvs
     octomap 
     octomap_msgs 
     Eigen3 
@@ -47,6 +51,8 @@ ament_target_dependencies(dsp
     tf2
     tf2_ros
     tf2_geometry_msgs)
+target_include_directories(dsp PRIVATE ${ROS2TOP_INCLUDE_DIR})
+target_link_libraries(dsp nlohmann_json::nlohmann_json)
 ament_export_dependencies(eigen3_cmake_module)
 ament_export_dependencies(Eigen3 octomap)
 ament_export_libraries(DSL)

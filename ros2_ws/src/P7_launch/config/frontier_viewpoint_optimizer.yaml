@@ -1,0 +1,66 @@
+frontier_viewpoint_optimizer_node:
+  ros__parameters:
+    # Input messages must be in the same frame; map must have native 0.5 m resolution.
+    frontier_topic: /frontier_segments
+    octomap_topic: /octomap_binary
+    odometry_topic: /Odometry
+    optimized_topic: /frontier_viewpoints
+    fov_marker_topic: /frontier_viewpoints/fov_markers
+    planning_voxel_size: 0.5
+
+    # Real sensor convention: level LiDAR model, yaw-only frame unless transformed upstream.
+    horizontal_fov_deg: 360.0
+    vertical_fov_min_deg: -88.5
+    vertical_fov_max_deg: 46.5
+    min_range: 0.2
+    max_range: 40.0
+    sensor_offset_x: 0.0
+    sensor_offset_y: 0.0
+    sensor_offset_z: 0.0
+
+    # Frontier geometry drives native-grid candidate sampling.
+    candidate_minimum_offset: 0.5
+    candidate_maximum_offset: 7.0
+    candidate_anchor_spacing: 1.0
+    candidate_vertical_spacing: 1.0
+    candidate_shell_step: 0.75
+    candidate_minimum_count: 32
+    candidate_maximum_count: 160
+    candidate_maximum_pool: 3000
+    frontier_visibility_samples: 48
+    yaw_samples: 8
+    reachable_evaluation_limit: 20
+
+    # New/updated frontiers only; reached-zero cases do not retry periodically.
+    reachability_max_distance: 25.0
+    reachability_max_nodes: 120000
+    reachability_max_build_ms: 1500
+    optimization_worker_count: 2
+
+    # The optimizer evaluates information quality, not DSP route cost.
+    frontier_area_weight: 3.0
+    new_volume_weight: 0.7
+    volume_score_depth_cap_m: 2.0
+    volume_unknown_depth_cap: 6.0
+    volume_ray_step: 0.5
+    altitude_bias_weight: 0.25
+    altitude_reference_z: 3.0
+    altitude_excess_scale: 2.0
+    excessive_altitude_penalty_weight: 1.2
+
+    enable_candidate_refining: true
+    refinement_iterations: 2
+    refinement_uav_half_extent: 0.18
+    refinement_clearance_margin: 0.01
+    refinement_voxel_fraction: 0.42
+    refinement_yaw_step_deg: 10.0
+
+    # A cached viewpoint persists unchanged unless its frontier is removed,
+    # its selected cell becomes occupied, or sightlines are definitively blocked.
+    geometry_change_tolerance: 0.65
+    cached_visibility_min_fraction: 0.10
+
+    draw_fov_markers: true
+    fov_marker_alpha: 0.45
+    fov_azimuth_segments: 20
+    enable_diagnostics: true

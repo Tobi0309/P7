@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>frontier_viewpoint_optimizer</name>
+  <version>0.5.0</version>
+  <description>Authoritative frontier lifecycle, spatially incremental map validation and parallel geometry-adaptive viewpoint optimization</description>
+  <maintainer email="maintainer@example.com">Package Maintainer</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>rosidl_default_generators</buildtool_depend>
+  <depend>rclcpp</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>visualization_msgs</depend>
+  <depend>octomap_msgs</depend>
+  <depend>frontier_segmentation</depend>
+  <depend>eigen3_cmake_module</depend>
+  <depend>eigen</depend>
+  <depend>octomap</depend>
+  <depend>ros2top</depend>
+  <depend>nlohmann_json</depend>
+  <exec_depend>rosidl_default_runtime</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <member_of_group>rosidl_interface_packages</member_of_group>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

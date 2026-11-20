@@ -1,0 +1,2 @@
+std_msgs/Header header
+frontier_viewpoint_optimizer/OptimizedFrontier[] viewpoints

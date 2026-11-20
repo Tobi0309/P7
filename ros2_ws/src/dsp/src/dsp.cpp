@@ -2,6 +2,9 @@
 
 #include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 
+#include <nlohmann/json.hpp>
+#include <ros2top/ros2top.hpp>
+
 #include <limits>
 
 
@@ -85,12 +88,40 @@ Dsp::Dsp() : Node("dsp")
     cost_srv_ = this->create_service<dsp_interfaces::srv::PathCost>("/dsp/path_cost",
     std::bind(&Dsp::request_cost, this, std::placeholders::_1, std::placeholders::_2));
 
+    // Planning failures are pushed to this receiver (frontier_viewpoint_selection serves it).
+    planning_failure_client_ = this->create_client<std_srvs::srv::Trigger>("/dsp/planning_failure");
+
+    nlohmann::json node_info = {
+        {"description", "D* Lite 3D path planner"},
+        {"version", "0.2.0"},
+        {"node_type", "path_planner"},
+        {"topics_published", "dsp/path, dsp/spline_path, dsp/occupancy_map, /move_base_simple/goal"},
+        {"services", "/dsp/path_cost, /dsp/set_goal"},
+        {"services_consumed", "/dsp/planning_failure"}
+    };
+    ros2top_registered_ = ros2top::register_node("/" + std::string(get_name()), node_info);
+    if (!ros2top_registered_) {
+        RCLCPP_WARN(get_logger(), "ros2top registration failed.");
+    }
+    ros2top_timer_ = create_wall_timer(std::chrono::seconds(3), [this]() {
+        if (ros2top_registered_) {
+            ros2top::heartbeat("/" + std::string(get_name()));
+        }
+    });
+
     start_pos << 0,0,0;
     goal_pos << 0,0,0;
     pmin << 0,0,0;
 
     tf_buffer = std::make_unique<tf2_ros::Buffer>(this->get_clock());
     tf_listener = std::make_shared<tf2_ros::TransformListener>(*tf_buffer);
+}
+
+Dsp::~Dsp()
+{
+    if (ros2top_registered_) {
+        ros2top::unregister_node("/" + std::string(get_name()));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -217,8 +248,9 @@ void Dsp::syncGraphCosts()
 
 // 2D occupancyGrid callback
 void Dsp::occupancy_grid_callback(const nav_msgs::msg::OccupancyGrid::SharedPtr msg){
+    std::lock_guard<std::mutex> lock(planning_mutex_);
 
-    dsp_unknown_ = this->get_parameter("DSP_UNKNOWN").as_int();
+    dsp_unknown_ =this->get_parameter("DSP_UNKNOWN").as_int();
     const int upper_thresh_ = this->get_parameter("upper_thresh").as_int();
     const int lower_thresh_ = this->get_parameter("lower_thresh").as_int();
     const double padding = this->get_parameter("obstacle_padding").as_double();
@@ -281,6 +313,8 @@ void Dsp::occupancy_grid_callback(const nav_msgs::msg::OccupancyGrid::SharedPtr 
 
 // octomap 3D callback
 void Dsp::octomap_data_callback(const octomap_msgs::msg::Octomap::SharedPtr msg) {
+    std::lock_guard<std::mutex> lock(planning_mutex_);
+
     std::unique_ptr<octomap::AbstractOcTree> abstract_tree(octomap_msgs::msgToMap(*msg));
     const octomap::OcTree *tree = dynamic_cast<octomap::OcTree*>(abstract_tree.get());
     if (!tree) {
@@ -490,29 +524,50 @@ void Dsp::handleSetStartOdom(const nav_msgs::msg::Odometry::SharedPtr msg)
 }
 
 void Dsp::request_cost(const std::shared_ptr<dsp_interfaces::srv::PathCost::Request> req, std::shared_ptr<dsp_interfaces::srv::PathCost::Response> res){
+    std::lock_guard<std::mutex> lock(planning_mutex_);
 
     if (!grid_built || !gdsl_) {
-        RCLCPP_WARN(this->get_logger(), "path_cost requested before a map was received");
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 5000,
+            "path_cost requested before a map was received");
         return;
     }
 
-    Eigen::Vector3d start_req(req->start.x, req->start.y, req->start.z);
-    Eigen::Vector3d goal_req(req->stop.x, req->stop.y, req->stop.z);
+    // Snap both ends to their voxel centres so DSL's floor() lands in the right cell.
+    Eigen::Vector3d grid_start = posRes(Eigen::Vector3d(req->start.x, req->start.y, req->start.z));
 
+    Eigen::Vector3d grid_goal = posRes(Eigen::Vector3d(req->stop.x, req->stop.y, req->stop.z));
 
-    if(!setSG(start_req, goal_req)){
+    for (int axis = 0; axis < 3; ++axis) {
+        grid_start(axis) = std::floor(grid_start(axis)) + 0.5;
+        grid_goal(axis) = std::floor(grid_goal(axis)) + 0.5;
+    }
+
+    auto valid_grid_point = [this](const Eigen::Vector3d &point) {
+        return point(0) >= 0.0 && point(0) < length_voxel &&
+            point(1) >= 0.0 && point(1) < width_voxel &&
+            point(2) >= 0.0 && point(2) < height_voxel;
+    };
+    if (!valid_grid_point(grid_start) || !valid_grid_point(grid_goal) ||
+        grid_start == grid_goal) {
+        return;
+    }
+
+    // A separate search over the shared grid, so cost queries never disturb the incremental
+    // D* Lite state of gdsl_ (the path being flown). SetCost on gdsl_ writes through to grid_,
+    // so this search sees the current map.
+    dsl::GridSearch<3> query_search(*grid_, *connectivity_, cost_, true);
+    if (!query_search.SetStart(grid_start) || !query_search.SetGoal(grid_goal)) {
         return;
     }
 
     dsl::GridPath<3> path;
-    gdsl_->Plan(path);
+    query_search.Plan(path);
     res->cost = path.cost;
     nav_msgs::msg::Path ros_path = dspPathToRosMsg(path,false);
     res->path = ros_path;
     res->distance = path_distance(ros_path);
 
     return;
-
 }
 
 float Dsp::path_distance(const nav_msgs::msg::Path path)
@@ -525,13 +580,14 @@ float Dsp::path_distance(const nav_msgs::msg::Path path)
     return distance;
 }
 
-float Dsp::point_distance( geometry_msgs::msg::Point p0,  geometry_msgs::msg::Point p1)
+float Dsp::point_distance(geometry_msgs::msg::Point p0,  geometry_msgs::msg::Point p1)
 {
     return sqrt(pow(p0.x - p1.x, 2) + pow(p0.y - p1.y, 2) + pow(p0.z - p1.z, 2));
 }
 
 void Dsp::handleSetStart(const geometry_msgs::msg::Point::SharedPtr msg)
 {
+    std::lock_guard<std::mutex> lock(planning_mutex_);
     Eigen::Vector3d wpos(msg->x, msg->y, msg->z);
     setStart(wpos);
 }
@@ -568,6 +624,8 @@ void Dsp::setStart(Eigen::Vector3d wpos)
 void Dsp::handleSetGoal(const std::shared_ptr<dsp_interfaces::srv::SetGoal::Request> req,
                         std::shared_ptr<dsp_interfaces::srv::SetGoal::Response> res)
 {
+    std::lock_guard<std::mutex> lock(planning_mutex_);
+
     const std::string odom_frame = this->get_parameter("odom_frame_id").as_string();
     geometry_msgs::msg::PoseStamped goal = req->goal;
 
@@ -664,7 +722,7 @@ bool Dsp::planPath(){
 
     dsl::GridPath<3> new_path;
     if (!gdsl_->Plan(new_path) || new_path.cells.empty()) {
-        RCLCPP_WARN(this->get_logger(), "No path found to goal");
+        reportPlanningFailure("DSP was unable to find a path to the requested goal.");
         return false;
     }
 
@@ -682,26 +740,69 @@ bool Dsp::planPath(){
     return true;
 }
 
+void Dsp::reportPlanningFailure(const std::string &message)
+{
+    RCLCPP_WARN(this->get_logger(), "%s", message.c_str());
+    if (!planning_failure_client_->service_is_ready()) {
+        RCLCPP_WARN(
+            this->get_logger(),
+            "Planning failure receiver is unavailable; failure was not acknowledged.");
+        return;
+    }
+
+    auto request = std::make_shared<std_srvs::srv::Trigger::Request>();
+    planning_failure_client_->async_send_request(
+        request,
+        [this, message](rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future) {
+            const auto response = future.get();
+            if (!response->success) {
+                RCLCPP_WARN(
+                    this->get_logger(),
+                    "Planning failure receiver rejected '%s': %s",
+                    message.c_str(), response->message.c_str());
+                return;
+            }
+            RCLCPP_INFO(
+                this->get_logger(),
+                "Planning failure receiver acknowledged '%s': %s",
+                message.c_str(), response->message.c_str());
+        });
+}
+
 bool Dsp::setSG(Eigen::Vector3d start, Eigen::Vector3d goal){
 
     Eigen::Vector3d grid_start = posRes(start);
     Eigen::Vector3d grid_goal = posRes(goal);
+    auto valid_grid_point = [this](const Eigen::Vector3d &point) {
+        return point(0) >= 0.0 && point(0) < length_voxel &&
+            point(1) >= 0.0 && point(1) < width_voxel &&
+            point(2) >= 0.0 && point(2) < height_voxel;
+    };
+
+    if (!gdsl_) {
+        reportPlanningFailure("DSP planner is not initialized.");
+        return false;
+    }
+    if (!valid_grid_point(grid_start) || !valid_grid_point(grid_goal)) {
+        reportPlanningFailure("Planning request is outside the DSP map.");
+        return false;
+    }
 
     if((int) grid_start(0) == (int) grid_goal(0)
         and (int) grid_start(1) == (int) grid_goal(1)
         and (int) grid_start(2) == (int) grid_goal(2))
     {
-        RCLCPP_WARN(this->get_logger(), "Start and goal poses are the some");
+        reportPlanningFailure("Start and goal poses are in the same grid cell.");
         return false;
     }
     if (!gdsl_->SetStart(grid_start))
     {
-        RCLCPP_WARN(this->get_logger(), "SetStart faild");
+        reportPlanningFailure("DSP failed to set the planning start.");
         return false;
     }
     if (!gdsl_->SetGoal(grid_goal))
     {
-        RCLCPP_WARN(this->get_logger(), "SetGoal faild");
+        reportPlanningFailure("DSP failed to set the planning goal.");
         return false;
     }
     return true;
@@ -717,10 +818,12 @@ Eigen::Vector3d Dsp::posRes(Eigen::Vector3d wpos)
 }
 
 void Dsp::pathUpdateCallback(){
+    std::lock_guard<std::mutex> lock(planning_mutex_);
     planPath();
 }
 
 void Dsp::goalPublishCallback(){
+    std::lock_guard<std::mutex> lock(planning_mutex_);
     publishGoalAhead();
 }
 

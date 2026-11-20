@@ -31,6 +31,7 @@ RUN apt-get update && apt-get install -y \
 	ros-jazzy-rviz2 \
     ros-jazzy-pcl-ros \
     ros-jazzy-launch-ros \
+    ros-jazzy-ros2launch \
     ros-jazzy-octomap-msgs \
     liboctomap-dev \
 	python3-vcstool \
@@ -68,6 +69,13 @@ RUN apt-get update && apt-get install -y \
     ros-jazzy-octomap-rviz-plugins \
     ros-jazzy-joy \
     && rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && apt-get install -y python3-pip && \
+    pip3 install --break-system-packages ros2top \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && apt-get install -y \
+    nlohmann-json3-dev
 
 # ROS <-> vision glue + Python tooling
 RUN apt-get update && apt-get install -y \

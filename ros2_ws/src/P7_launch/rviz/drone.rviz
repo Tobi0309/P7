@@ -1,13 +1,18 @@
 Panels:
   - Class: rviz_common/Displays
     Name: Displays
+  - Class: rviz_common/Views
+    Expanded:
+      - /Current View1
+    Name: Views
+    Splitter Ratio: 0.5
 Visualization Manager:
   Class: ""
   Displays:
     - Class: rviz_default_plugins/Grid
       Name: Grid
       Cell Size: 1
-      Enabled: true
+      Enabled: false
       Plane: XY
       Plane Cell Count: 20
       Reference Frame: world
@@ -24,10 +29,46 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /robot_description
       Enabled: true
+    - Class: octomap_rviz_plugins/OccupancyGrid
+      Name: Occupancy Grid
+      Enabled: true
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /octomap_binary
+      Alpha: 0.7
+      Color: 0; 255; 0
+      Color Scheme: Z-Axis
+      Draw Free Space: false
+      Tree Depth: 16
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Frontier Segmentation
+      Enabled: true
+      Namespaces:
+        {}
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /frontier_segments/markers
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Frontier Viewpoint Optimizer
+      Enabled: true
+      Namespaces:
+        {}
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /frontier_viewpoints/fov_markers
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
-    Fixed Frame: world
+    Fixed Frame: camera_init
     Frame Rate: 30
   Name: root
   Tools:
@@ -37,16 +78,6 @@ Visualization Manager:
   Transformation:
     Current:
       Class: rviz_default_plugins/TF
-  Views:
-    Current:
-      Class: rviz_default_plugins/Orbit
-      Distance: 1
-      Focal Point:
-        X: 0
-        Y: 0
-        Z: 0
-      Pitch: 0.5
-      Yaw: 0.8
 Window Geometry:
   Height: 800
   Width: 1200
