@@ -1,0 +1,47 @@
+# Default DSP parameters (dsp_launch.py loads this unless params_file is given).
+# DSP is a path-cost server: it answers /dsp/path_cost and does not navigate.
+# The project configuration lives in P7_launch/config/dsp.yaml.
+/**:
+  ros__parameters:
+    # Frame of the map and of the paths that /dsp/path_cost returns.
+    odom_frame_id: camera_init
+    use_3d: true
+    # Unfiltered LiDAR map from mapping.launch.py's octomap_server. DSP only needs occupancy,
+    # so the binary map is enough (same map as /octomap_full, smaller messages).
+    map_topic: /octomap_binary
+    # Rate [Hz] at which the newest map message is applied (<= 0: every message). The octomap
+    # server publishes once per point cloud (~10 Hz).
+    map_update_rate: 2.0
+    # Slack [m] added around the octree bounds when the voxel grid is (re)allocated, so the grid
+    # and the search graph on it are not rebuilt every time the map grows.
+    map_bounds_margin_xy: 10.0
+    map_bounds_margin_z: 3.0
+
+    # Voxel padding: voxels whose centre is closer than obstacle_padding [m] to an occupied voxel
+    # are blocked. frontier_viewpoint_optimizer must pad at least as much, or DSP reports its
+    # viewpoints as blocked.
+    obstacle_padding_enabled: true
+    obstacle_padding: 0.5
+    # A start or goal inside a blocked voxel (e.g. the drone on the ground, inside the floor's
+    # padding) is moved to the nearest free voxel within this radius [m].
+    endpoint_snap_radius: 1.0
+
+    # Cost of an unknown voxel (a free voxel costs 1). ego-planner flies through unknown space
+    # as if it were free, so a small extra cost matches it. A large value (it was 10000) also
+    # makes every search that must cross unknown space expand almost the whole grid first.
+    DSP_UNKNOWN: 50
+    # Height preference: + |z - (floor + optimal_voxel_height)| * optimal_voxel_height_cost.
+    # Keep the cost small: the search heuristic assumes 1 per free voxel, so a large height cost
+    # makes every search expand far more voxels (150-query benchmark on the bundled map with
+    # DSP_UNKNOWN 50: median 66 ms / max 1010 ms at 10, median 6 ms / max 71 ms at 1). The
+    # viewpoint optimizer already prefers a flight height (altitude_reference_z).
+    height_kernel_size: 3
+    optimal_voxel_height: 6
+    optimal_voxel_height_cost: 1
+
+    # A path_cost search that runs longer than this [ms] is answered with "no path"
+    # (<= 0: no limit). Start and goal that obstacles separate are answered without a search.
+    path_cost_max_search_ms: 1000
+    # The lazily expanded search graph is released above this many vertices (roughly
+    # 12-25 KB each).
+    max_search_vertices: 50000

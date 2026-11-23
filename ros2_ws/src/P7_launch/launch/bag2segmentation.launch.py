@@ -100,12 +100,11 @@ def generate_launch_description():
         name='dsp',
         output='screen',
         condition=IfCondition(LaunchConfiguration('use_dsp')),
-        parameters=[{
-            'base_link_frame_id': 'body',
-            'odom_frame_id': 'world',
-            'use_3d': True,
-            'map_topic': '/octomap_binary',
-        }],
+        # Same parameters as the live system; only the planning frame differs for bags.
+        parameters=[
+            str(p7_share / 'config' / 'dsp.yaml'),
+            {'odom_frame_id': 'world'},
+        ],
     )
 
     rviz = Node(

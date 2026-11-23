@@ -127,6 +127,16 @@ def generate_launch_description():
             # Use the goal's z (e.g. from DSP), clamped to the flyable band. False = fixed
             # height of fsm/goal_height_above_ground above grid_map/ground_height.
             {'fsm/use_goal_z': True},
+            # If the goal voxel is occupied, move it to the free voxel within
+            # goal_search_radius [m] minimising |c - goal| + w * |c - drone|. w in [0, 1):
+            # 0 = plain nearest free voxel, higher = prefer the drone's side of the obstacle.
+            # Keep it at or below the selector's arrival_position_tolerance (1.0 m), or the
+            # selector never sees the drone arrive at a moved goal.
+            {'fsm/goal_search_radius': 1.0},
+            # A local target inside an obstacle is moved along the straight reference to a free
+            # point at least this far [m] beyond the obstacle (else to the first free point).
+            {'fsm/local_target_clearance': 1.0},
+            {'fsm/goal_search_drone_weight': 0.5},
             
             {'fsm/waypoint_num': point_num},
             {'fsm/waypoint0_x': point0_x},

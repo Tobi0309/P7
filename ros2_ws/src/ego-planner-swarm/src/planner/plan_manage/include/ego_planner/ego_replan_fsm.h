@@ -66,10 +66,15 @@ namespace ego_planner
 
     /* planning data */
     bool have_trigger_, have_target_, have_odom_, have_new_target_, have_recv_pre_agent_;
-    bool goal_height_adjustment_attempted_{false};
+    bool goal_adjustment_attempted_{false};
     double goal_height_above_ground_{2.0};
     double goal_min_height_above_ground_{0.5};
-    double goal_vertical_search_range_{2.0};
+    // Occupied goal -> nearest free voxel within this radius, cost |c-goal| + w*|c-drone|
+    double goal_search_radius_{2.0};
+    double goal_search_drone_weight_{0.5};
+    // A local target that lies inside an obstacle is moved along the global reference to a free
+    // point at least this far [m] beyond the obstacle, so the path does not end right behind it.
+    double local_target_clearance_{1.0};
     // true: use the goal's z (clamped to the map's flyable band); false: ground + goal_height_above_ground_
     bool use_goal_z_{true};
     // Yaw requested by the current manual goal; applied by traj_server after arriving.
@@ -110,6 +115,7 @@ namespace ego_planner
     bool callReboundReplan(bool flag_use_poly_init, bool flag_randomPolyTraj); // front-end and back-end method
     bool callEmergencyStop(Eigen::Vector3d stop_pos, bool hold_goal_yaw = false); // front-end and back-end method
     void attachGoalYaw(traj_utils::msg::Bspline &bspline, bool ends_at_goal) const;
+    void flyableGoalBand(double &min_z, double &max_z) const;
     bool planFromGlobalTraj(const int trial_times = 1);
     bool planFromCurrentTraj(const int trial_times = 1);
 

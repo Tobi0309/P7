@@ -1,7 +1,6 @@
 #pragma once
 
 #include <dsp_interfaces/srv/path_cost.hpp>
-#include <dsp_interfaces/srv/set_goal.hpp>
 #include <frontier_viewpoint_optimizer/msg/optimized_frontier_array.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
@@ -36,7 +35,6 @@ private:
     using View = frontier_viewpoint_optimizer::msg::OptimizedFrontier;
     using Array = frontier_viewpoint_optimizer::msg::OptimizedFrontierArray;
     using PathCost = dsp_interfaces::srv::PathCost;
-    using SetGoal = dsp_interfaces::srv::SetGoal;
     using Trigger = std_srvs::srv::Trigger;
     using PairKey = std::array<int64_t, 6>;
 
@@ -73,7 +71,6 @@ private:
     void viewpointsCb(Array::SharedPtr msg);
     void odomCb(nav_msgs::msg::Odometry::SharedPtr msg);
     void finishCb(const std::shared_ptr<Trigger::Request> request, std::shared_ptr<Trigger::Response> response);
-    void planningFailureCb(const std::shared_ptr<Trigger::Request> request, std::shared_ptr<Trigger::Response> response);
     void tick();
     void heartbeatCb();
     void registerTop();
@@ -99,14 +96,16 @@ private:
     void publishStatus();
     void logSelectedOrder() const;
     void sendHoldPose();
-    void sendCommand(const geometry_msgs::msg::PoseStamped &pose);
+    void sendCommand(const geometry_msgs::msg::PoseStamped &pose, bool hold = false);
     void cancelCommand();
     void serviceCommand();
-    void commandResponse(uint64_t token, rclcpp::Client<SetGoal>::SharedFuture future);
+    void checkEgoPlanner();
+    void markReached(Clock::time_point current);
     void startGoal(uint32_t id);
     void abandonGoal(const char *reason);
     void completeGoal();
     bool currentGoalAvailable() const;
+    bool reassociateGoal();
     bool arrived() const;
     double currentUtility() const;
     void processStateMachine();
@@ -117,9 +116,9 @@ private:
     rclcpp::Subscription<Array>::SharedPtr viewpoints_sub_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
     rclcpp::Client<PathCost>::SharedPtr cost_client_;
-    rclcpp::Service<Trigger>::SharedPtr planning_failure_service_;
     rclcpp::Service<Trigger>::SharedPtr finish_service_;
-    rclcpp::Client<SetGoal>::SharedPtr command_client_;  // DSP /dsp/set_goal
+    // Goals and holds for ego-planner (geometry_msgs/PoseStamped on goal_topic).
+    rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr goal_pub_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr state_pub_;
     rclcpp::TimerBase::SharedPtr timer_;
     rclcpp::TimerBase::SharedPtr heartbeat_timer_;
@@ -165,23 +164,36 @@ private:
     Clock::time_point cost_request_started_{};
     Clock::time_point last_cost_request_sent_{};
 
-    // Latest goal/hold pose; re-sent to DSP's set_goal service until it answers success=true.
+    // Newest goal/hold pose that is not published yet (it waits while ego-planner is not running).
     std::optional<geometry_msgs::msg::PoseStamped> pending_command_;
-    bool command_inflight_{false};
-    uint64_t command_request_token_{0};
-    int64_t command_request_id_{0};
-    uint32_t command_attempts_{0};
-    Clock::time_point command_last_sent_{};
+    // A hold is the robot's current pose: refreshed from odometry when it is published.
+    bool pending_command_is_hold_{false};
+    // Last published command; published again when ego-planner restarts.
+    std::optional<geometry_msgs::msg::PoseStamped> active_command_;
+    bool active_command_is_hold_{false};
+    // A REPLAN sends a hold only if no new goal is committed before this time.
+    std::optional<Clock::time_point> hold_due_;
+    // ego-planner node check (get_node_names()), at most once per second.
+    bool ego_present_{false};
+    bool ego_checked_{false};
+    Clock::time_point last_ego_check_{};
+
+    // Run statistics for the diagnostics line.
+    int reached_count_{0};
+    int dropped_disappeared_{0};
+    int dropped_no_progress_{0};
+    int dropped_other_{0};
+    double flown_m_{0.0};
+    std::optional<Vector> flown_anchor_;
 
     bool ros2top_registered_{false};
     std::string viewpoints_topic_;
     std::string odom_topic_;
     std::string cost_service_;
-    std::string planning_failure_service_name_;
     std::string finish_service_name_;
-    std::string command_service_;
-    double command_retry_{0.5};
-    double command_timeout_{2.0};
+    std::string goal_topic_;
+    std::string ego_node_name_;
+    double replan_hold_delay_{2.0};
     double information_weight_{1.0};
     double path_cost_weight_{0.03};
     double path_distance_weight_{0.8};
@@ -204,6 +216,8 @@ private:
     double service_interval_{0.15};
     double cost_origin_distance_{1.5};
     double key_quantization_{0.5};
+    double max_valid_path_cost_{1.0e9};
+    double reassociation_distance_{1.0};
     double missing_grace_{3.0};
     double no_progress_timeout_{50.0};
     double progress_increment_{0.5};

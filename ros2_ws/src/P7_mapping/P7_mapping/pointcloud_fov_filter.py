@@ -35,7 +35,6 @@ class PointCloudFOVFilter(Node):
         self.camera_extrinsic = None
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
-        self.extrinsic_timer = self.create_timer(0.5, self.lookup_camera_extrinsic)
 
         self.camera_intrinsic = np.zeros((3, 3))
         self.width = 1280
@@ -65,20 +64,20 @@ class PointCloudFOVFilter(Node):
             self.get_logger().warn(
                 f'Waiting for {self.imu_frame} -> {self.camera_frame} TF: {e}',
                 throttle_duration_sec=5.0)
-            return
+            return False
 
         t = transform.transform.translation
         rotation = quaternion_to_matrix(transform.transform.rotation)
         translation = np.array([t.x, t.y, t.z])
 
         self.camera_extrinsic = np.hstack((rotation, translation.reshape(3, 1)))
-        self.extrinsic_timer.cancel()
         self.get_logger().info(
             f'Camera extrinsic ({self.imu_frame} -> {self.camera_frame}):\n'
             f'{np.array2string(self.camera_extrinsic, precision=4, suppress_small=True)}')
+        return True
 
     def pointcloud2_callback(self, pointcloud2_msg):
-        if self.camera_extrinsic is None:
+        if self.camera_extrinsic is None and not self.lookup_camera_extrinsic():
             return
 
         coordinates = np.array(
@@ -97,11 +96,12 @@ class PointCloudFOVFilter(Node):
         pixels_x = transformed_coordinates[:, 0] / (z + 1e-5)
         pixels_y = transformed_coordinates[:, 1] / (z + 1e-5)
 
+        in_front = z > 0.1
         mask = (
-            (z > 0.1) &
-            (pixels_x >= 0) & 
+            in_front &
+            (pixels_x >= 0) &
             (pixels_x < self.width) &
-            (pixels_y >= 0) & 
+            (pixels_y >= 0) &
             (pixels_y < self.height)
         )
 

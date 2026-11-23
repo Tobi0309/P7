@@ -41,6 +41,9 @@ Requires `ros2top` and `nlohmann_json` unconditionally; **no** `FVO_WITH_ROS2TOP
 ## Physical assumptions and limitations
 
 - The entire rotating/tilting UAV collision envelope **must fit inside a 0.5 m voxel** for the coarse BFS assumption to be collision-safe; check this before real flight.
+- Voxel padding (`obstacle_padding_enabled`, `obstacle_padding`) rejects candidate viewpoints whose voxel centre is closer than the padding to an occupied voxel, and invalidates cached viewpoints that end up inside it. It uses DSP's padding rule. Use at least DSP's padding, otherwise DSP treats the viewpoints as blocked, and more than ego-planner's obstacle inflation, otherwise ego-planner moves the goal.
+- The sensor model (`horizontal_fov_deg`, `vertical_fov_*_deg`, `min_range`, `max_range`, `sensor_offset_*`) must match the sensor that builds `octomap_topic`, because a frontier only goes away when that sensor has seen it. With a horizontal FOV below 360 deg the viewpoint yaw matters and `yaw_samples` directions are evaluated per candidate.
+- With `enable_diagnostics`, the node logs the explored (known) volume of its map every 10 s. This is a direct measure of exploration progress.
 - The FOV model assumes yaw-level LiDAR unless transforms are incorporated; it does not model roll/pitch changes.
 - A bounded BFS can report zero reachable candidate centers because the frontier is outside its configured 25 m radius. If that is a concern, increase `reachability_max_distance` or let DSP handle long-distance route verification, but do not conflate local BFS with global reachability.
 - Spatial deltas are computed from the decoded full OctoMap; this adds CPU and RAM per map update but runs asynchronously. If your Octomap is rolling or resets unexpectedly, dropped segment IDs should be diagnosed upstream.

@@ -24,7 +24,7 @@ def generate_launch_description():
         executable="static_transform_publisher",
         arguments=[
             "0", "0", "0",
-            "0", "0", "2.74889357",
+            "0", "0", "0",
             "world",
             "camera_init"
         ]
