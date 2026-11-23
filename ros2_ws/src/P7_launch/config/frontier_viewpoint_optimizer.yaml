@@ -10,35 +10,24 @@
     planning_voxel_size: 0.5
 
     # Voxel padding: reject candidate viewpoints whose voxel centre is closer than
-    # obstacle_padding [m] to an occupied voxel. Use at least DSP's padding
-    # (P7_launch/config/dsp.yaml), otherwise DSP treats such viewpoints as blocked, and more
-    # than ego-planner's obstacle inflation (0.36 m), otherwise ego-planner moves the goal.
-    obstacle_padding_enabled: true
+    # obstacle_padding [m] to an occupied voxel. Keep both values identical to DSP's
+    # (P7_launch/config/dsp.yaml), otherwise DSP treats such viewpoints as blocked.
+    obstacle_padding_enabled: false
     obstacle_padding: 0.5
 
-    # Sensor model used to score viewpoints. It must match the sensor that builds
-    # octomap_topic: a frontier only goes away when that sensor has seen it. Level sensor,
-    # yaw-only frame unless transformed upstream.
-    # /octomap_binary_filtered only contains LiDAR points inside the forward camera image
-    # (pointcloud_fov_filter) up to 10 m (octomap sensor_model.max_range), so the viewpoints
-    # are scored with that camera: FOV from /UAV/rgbd_camera/color/camera_info (1280 x 720,
-    # fx = fy = 634.1), mount from the URDF camera_joint. The yaw now matters, so yaw_samples
-    # directions are scored per candidate. Live A/B run in Isaac Sim (forest4, 6 min): explored
-    # camera-map volume 6477 m^3 against 5745 m^3 with the old 360 deg / 40 m LiDAR model and
-    # scores (see the report of 2026-11-23).
-    horizontal_fov_deg: 90.5
-    vertical_fov_min_deg: -29.6
-    vertical_fov_max_deg: 29.6
-    min_range: 0.3
-    max_range: 10.0
-    sensor_offset_x: 0.13
+    # Real sensor convention: level LiDAR model, yaw-only frame unless transformed upstream.
+    horizontal_fov_deg: 360.0
+    vertical_fov_min_deg: -88.5
+    vertical_fov_max_deg: 46.5
+    min_range: 0.2
+    max_range: 40.0
+    sensor_offset_x: 0.0
     sensor_offset_y: 0.0
     sensor_offset_z: 0.0
 
     # Frontier geometry drives native-grid candidate sampling.
-    # Stand-off from the frontier box; 5 m keeps its far side inside the 10 m camera range.
-    candidate_minimum_offset: 1.0
-    candidate_maximum_offset: 5.0
+    candidate_minimum_offset: 0.5
+    candidate_maximum_offset: 7.0
     candidate_anchor_spacing: 1.0
     candidate_vertical_spacing: 1.0
     candidate_shell_step: 0.75
@@ -47,8 +36,7 @@
     candidate_maximum_pool: 3000
     frontier_visibility_samples: 48
     yaw_samples: 8
-    # 16 candidates x yaw_samples directions are scored in full per frontier.
-    reachable_evaluation_limit: 16
+    reachable_evaluation_limit: 20
 
     # New/updated frontiers only; reached-zero cases do not retry periodically.
     reachability_max_distance: 25.0
@@ -58,18 +46,14 @@
 
     # The optimizer evaluates information quality, not DSP route cost.
     frontier_area_weight: 3.0
-    # Weight views into deep unknown space (the next area to fly into) above thin gaps.
-    new_volume_weight: 1.0
-    volume_score_depth_cap_m: 4.0
+    new_volume_weight: 0.7
+    volume_score_depth_cap_m: 2.0
     volume_unknown_depth_cap: 6.0
     volume_ray_step: 0.5
     altitude_bias_weight: 0.25
-    # Penalty above altitude_reference_z, steep above reference + excess (4.0 m): ego-planner's
-    # ceiling is 4.9 m and the forest crowns start at about 4 m. Untested option to remove the
-    # last viewpoints above 4 m: excessive_altitude_penalty_weight 30.
-    altitude_reference_z: 2.5
-    altitude_excess_scale: 1.5
-    excessive_altitude_penalty_weight: 5.0
+    altitude_reference_z: 3.0
+    altitude_excess_scale: 2.0
+    excessive_altitude_penalty_weight: 1.2
 
     enable_candidate_refining: false
     refinement_iterations: 2

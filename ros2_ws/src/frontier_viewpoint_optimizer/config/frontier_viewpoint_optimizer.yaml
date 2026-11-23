@@ -9,15 +9,12 @@ frontier_viewpoint_optimizer_node:
     planning_voxel_size: 0.5
 
     # Voxel padding: reject candidate viewpoints whose voxel centre is closer than
-    # obstacle_padding [m] to an occupied voxel. Use at least DSP's padding
-    # (P7_launch/config/dsp.yaml), otherwise DSP treats such viewpoints as blocked, and more
-    # than ego-planner's obstacle inflation (0.36 m), otherwise ego-planner moves the goal.
+    # obstacle_padding [m] to an occupied voxel. Keep both values identical to DSP's
+    # (P7_launch/config/dsp.yaml), otherwise DSP treats such viewpoints as blocked.
     obstacle_padding_enabled: true
     obstacle_padding: 0.5
 
-    # Sensor model used to score viewpoints. It must match the sensor that builds
-    # octomap_topic: a frontier only goes away when that sensor has seen it. Level sensor,
-    # yaw-only frame unless transformed upstream.
+    # Real sensor convention: level LiDAR model, yaw-only frame unless transformed upstream.
     horizontal_fov_deg: 360.0
     vertical_fov_min_deg: -88.5
     vertical_fov_max_deg: 46.5

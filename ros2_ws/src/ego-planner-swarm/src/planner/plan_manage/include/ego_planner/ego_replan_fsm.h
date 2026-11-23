@@ -72,9 +72,6 @@ namespace ego_planner
     // Occupied goal -> nearest free voxel within this radius, cost |c-goal| + w*|c-drone|
     double goal_search_radius_{2.0};
     double goal_search_drone_weight_{0.5};
-    // A local target that lies inside an obstacle is moved along the global reference to a free
-    // point at least this far [m] beyond the obstacle, so the path does not end right behind it.
-    double local_target_clearance_{1.0};
     // true: use the goal's z (clamped to the map's flyable band); false: ground + goal_height_above_ground_
     bool use_goal_z_{true};
     // Yaw requested by the current manual goal; applied by traj_server after arriving.

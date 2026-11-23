@@ -3,39 +3,34 @@
   ros__parameters:
     optimized_topic: /frontier_viewpoints
     odometry_topic: /Odometry_base_link
-    # DSP only costs routes; it does not navigate.
     dsp_cost_service: /dsp/path_cost
+    planning_failure_service: /dsp/planning_failure
     finish_service: /frontier_viewpoint_selection/finish
+    dsp_set_goal_service: /dsp/set_goal
 
-    # Goals go straight to ego-planner (geometry_msgs/PoseStamped), which plans and follows
-    # the path itself. A new goal is published once when it is committed; a hold (the
-    # robot's current odometry pose) when REPLAN finds no new goal or FINISHED is called.
-    # ego-planner ignores frame_id: viewpoints and odometry must be in its map frame.
-    goal_topic: /move_base_simple/goal
-    # While this node is not running, goals wait, no new goal is committed and the
-    # no-progress timeout is paused. The active goal is sent again when it is back.
-    # Empty disables the check.
-    ego_planner_node: /drone_0_ego_planner_node
-    # After a REPLAN the drone keeps flying; a hold is sent only if no new goal is
-    # committed within this time [s]. 0 sends the hold at once.
-    replan_hold_delay_seconds: 2.0
+    # DSP's set_goal service (dsp_interfaces/srv/SetGoal) is called with a new goal
+    # on commitment, and with the robot's current odometry pose when REPLAN (or
+    # FINISHED) requests a hold. DSP acknowledges as soon as it has stored the goal
+    # and plans afterwards (failures arrive on planning_failure_service), so the
+    # timeout only matters if DSP is not running. A pose is re-sent until DSP
+    # answers success=true; a hold is refreshed from odometry on every send. A newer
+    # command replaces one that has not been acknowledged yet.
+    goal_command_retry_seconds: 0.5
+    goal_command_timeout_seconds: 2.0
 
     # The DSP-verified viewpoint visit order is logged when a goal is selected.
     # Ranking is done here, not in the optimizer: the optimizer's score stays unchanged.
     information_weight: 1.0
     path_cost_weight: 0.03
-    # 1 m^2 of visible frontier (score 3) is worth 2 m of travel (it was 3.75 m at 0.8).
-    path_distance_weight: 1.5
+    path_distance_weight: 0.8
 
     # Add a spatial Gaussian bonus to each viewpoint's original information score.
     # Gaussian bonus = gaussian_weight * exp(-0.5 * ((dx^2+dy^2)/sigma_xy^2 + dz^2/sigma_z^2)).
     # viewpoint_mean = arithmetic mean of currently eligible viewpoint positions.
     # robot = robot's current position. fixed = specified fixed coordinates.
-    # robot + small weight: no pull toward the middle of all frontiers (viewpoint_mean with
-    # weight 15 was worth 19 m of travel); a small bonus for frontiers near the drone instead.
-    gaussian_mean_mode: robot
-    gaussian_weight: 5.0
-    gaussian_sigma_xy: 5.0
+    gaussian_mean_mode: viewpoint_mean
+    gaussian_weight: 15.0
+    gaussian_sigma_xy: 8.0
     gaussian_sigma_z: 0.0
     gaussian_fixed_mean_x: 0.0
     gaussian_fixed_mean_y: 0.0
@@ -45,7 +40,7 @@
     # pairwise shortlist. Reward at visit index k is discounted by factor^k.
     # Explicitly consider nearby / straight-line-corridor intermediate stops.
     route_visit_discount: 0.95
-    route_nearby_candidate_reserve: 3
+    route_nearby_candidate_reserve: 2
     route_corridor_candidate_reserve: 2
     route_corridor_width_m: 3.0
     # Once enough robot-to-viewpoint costs arrive, permit this wait to gather
@@ -54,37 +49,34 @@
     route_initial_required_pairwise_edges: 1
 
     max_rank_candidates: 8
-    # Watch queued_edges in the diagnostics line: use 4 if it stays above 40.
     pairwise_cost_candidates: 8
     minimum_cost_coverage: 3
     ranking_period_seconds: 3.0
     path_cost_cache_ttl_seconds: 12.0
     pairwise_cost_cache_ttl_seconds: 90.0
     failed_path_retry_seconds: 10.0
-    # DSP abandons a search after path_cost_max_search_ms (1 s).
-    dsp_service_timeout_seconds: 2.0
+    dsp_service_timeout_seconds: 4.0
     dsp_request_interval_seconds: 0.05
     cost_origin_requery_distance: 1.5
     cost_key_quantization: 0.5
     # A DSP cost at or above this means the route crosses an obstacle or its padding.
     max_valid_path_cost: 1.0e9
 
+    # DSP sends failures by calling the service server at /dsp/planning_failure.
+    # An active navigation goal enters REPLAN upon an acknowledged notification.
+
     missing_goal_grace_seconds: 3.0
     # When the committed frontier ID disappears (split/merge in segmentation), continue to
     # the nearest viewpoint within this distance [m] instead of replanning. 0 disables.
-    committed_goal_reassociation_distance: 2.0
+    committed_goal_reassociation_distance: 1.0
     enable_utility_preemption: false
     minimum_goal_commit_seconds: 5.0
     switch_utility_margin: 0.25
     switch_confirmation_cycles: 3
 
-    # ego-planner flies at up to 0.5 m/s, so 25 s without 0.5 m of progress means it is stuck.
-    navigation_no_progress_timeout_seconds: 25.0
+    navigation_no_progress_timeout_seconds: 50.0
     navigation_progress_increment: 0.5
-    # ego-planner moves a goal that is inside its obstacle inflation (fsm/goal_search_radius,
-    # 1.0 m) and clamps z to its flyable band, so the drone can stop up to about 1 m away.
-    arrival_position_tolerance: 1.0
-    # After it arrives, ego-planner turns to the viewpoint yaw at 0.5 rad/s (90 deg = 3.1 s).
-    observation_settle_seconds: 4.0
+    arrival_position_tolerance: 0.5
+    observation_settle_seconds: 2.0
     visited_frontier_cooldown_seconds: 30.0
     enable_diagnostics: true

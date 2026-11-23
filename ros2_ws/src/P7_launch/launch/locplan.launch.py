@@ -68,11 +68,10 @@ def generate_launch_description():
     	parameters=[{'use_sim_time': True}],
     )
 
-    # Goal on /goal (e.g. RViz) -> ego-planner (/move_base_simple/goal) at the current altitude
-    goal_converter_ego = Node(
+    goal_converter_dsp = Node(
         package='P7_helper',
-        executable='goal_converter_ego',
-        name='goal_converter_ego',
+        executable='goal_converter_dsp',
+        name='goal_converter_dsp',
         output='screen',
         parameters=[{'use_sim_time': True}],
     )
@@ -106,7 +105,7 @@ def generate_launch_description():
         fastlio,
         imu_propagation,
 	    odometry_transformer,
-	    goal_converter_ego,
+	    goal_converter_dsp,
 	    pos_cmd_to_px4,
         delayed_rosbag_player,
     ])

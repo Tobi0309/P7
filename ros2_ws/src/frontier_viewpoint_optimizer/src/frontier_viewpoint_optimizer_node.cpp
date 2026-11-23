@@ -125,9 +125,7 @@ FrontierViewpointOptimizer::FrontierViewpointOptimizer()
 
     expected_resolution_ = declare_parameter<double>("planning_voxel_size", 0.5);
     // Voxel padding, same names and meaning as DSP's: a candidate voxel whose centre is closer
-    // than obstacle_padding [m] to an occupied voxel is rejected. Use at least DSP's padding (so
-    // DSP can cost a route to the viewpoint) and more than ego-planner's obstacle inflation (so
-    // ego-planner does not have to move the goal).
+    // than obstacle_padding [m] to an occupied voxel is rejected, so DSP can plan to it.
     padding_enabled_ = declare_parameter<bool>("obstacle_padding_enabled", true);
     padding_ = declare_parameter<double>("obstacle_padding", 0.5);
     hfov_ = radians(declare_parameter<double>("horizontal_fov_deg", 360.0));
@@ -524,7 +522,6 @@ void FrontierViewpointOptimizer::mapWorkerLoop() {
         return occupancy;
     };
     Occupancy old_occupancy;
-    std::chrono::steady_clock::time_point last_volume_log{};
     while (true) {
         octomap_msgs::msg::Octomap::SharedPtr message;
         {
@@ -618,19 +615,6 @@ void FrontierViewpointOptimizer::mapWorkerLoop() {
         validation_cv_.notify_all();
         if (diagnostics_) {
             RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 2000, "Map delta: %zu changed native cells, %zu affected views, %zu geometry updates; others untouched", changed_count, affected, geometry_affected);
-            // Exploration progress of the map this node uses (in P7: the space the camera has seen).
-            const auto wall_now = std::chrono::steady_clock::now();
-            if (wall_now - last_volume_log >= std::chrono::seconds(10)) {
-                last_volume_log = wall_now;
-                std::size_t free_cells = 0;
-                for (const auto &cell : old_occupancy) {
-                    if (cell.second == 1) {
-                        ++free_cells;
-                    }
-                }
-                const double voxel = std::pow(snapshot->getResolution(), 3);
-                RCLCPP_INFO(get_logger(), "Explored volume: %.1f m^3 known (free %.1f m^3, occupied %.1f m^3)", old_occupancy.size() * voxel, free_cells * voxel, (old_occupancy.size() - free_cells) * voxel);
-            }
         }
     }
 }

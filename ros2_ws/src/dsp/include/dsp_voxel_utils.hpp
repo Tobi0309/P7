@@ -150,64 +150,6 @@ bool crossesBlocked(const std::vector<int> &cells, Blocked blocked)
     return std::any_of(cells.begin(), cells.end(), [&](int idx) { return blocked(idx); });
 }
 
-// Connected components of the voxels that are not blocked, with the same neighbourhood as DSL's
-// Grid3dConnectivity (26 neighbours; 8 when nz == 1). Returns one label per voxel: -1 for a
-// blocked voxel, otherwise the component number. Two voxels with the same label are joined by
-// a path that never enters a blocked voxel; with different labels no such path exists, and a
-// D* Lite search between them would expand every voxel it can reach before it gives up.
-template <class Blocked>
-std::vector<int> labelComponents(const VoxelLayout &layout, Blocked blocked)
-{
-    const int size = std::max(layout.size(), 0);
-    const int nx = layout.nx;
-    const int ny = layout.ny;
-    const int nz = layout.nz;
-    const int plane = nx * ny;
-    std::vector<int> label(static_cast<std::size_t>(size), -1);
-    std::vector<int> stack;
-    int next_label = 0;
-    for (int seed = 0; seed < size; seed++) {
-        if (label[seed] != -1 || blocked(seed)) {
-            continue;
-        }
-        label[seed] = next_label;
-        stack.push_back(seed);
-        while (!stack.empty()) {
-            const int current = stack.back();
-            stack.pop_back();
-            const int x = current % nx;
-            const int y = (current % plane) / nx;
-            const int z = current / plane;
-            for (int dz = -1; dz <= 1; dz++) {
-                const int zz = z + dz;
-                if (zz < 0 || zz >= nz) {
-                    continue;
-                }
-                for (int dy = -1; dy <= 1; dy++) {
-                    const int yy = y + dy;
-                    if (yy < 0 || yy >= ny) {
-                        continue;
-                    }
-                    for (int dx = -1; dx <= 1; dx++) {
-                        const int xx = x + dx;
-                        if (xx < 0 || xx >= nx) {
-                            continue;
-                        }
-                        const int idx = xx + yy * nx + zz * plane;
-                        if (label[idx] != -1 || blocked(idx)) {
-                            continue;
-                        }
-                        label[idx] = next_label;
-                        stack.push_back(idx);
-                    }
-                }
-            }
-        }
-        next_label++;
-    }
-    return label;
-}
-
 }  // namespace dsp
 
 #endif  // DSP_VOXEL_UTILS_HPP_

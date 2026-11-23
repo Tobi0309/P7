@@ -28,7 +28,6 @@ namespace ego_planner
     node_->declare_parameter("fsm/goal_min_height_above_ground", 0.5);
     node_->declare_parameter("fsm/goal_search_radius", 2.0);
     node_->declare_parameter("fsm/goal_search_drone_weight", 0.5);
-    node_->declare_parameter("fsm/local_target_clearance", 1.0);
     node_->declare_parameter("fsm/use_goal_z", true);
 
     node_->get_parameter("fsm/flight_type", target_type_);
@@ -43,7 +42,6 @@ namespace ego_planner
     node_->get_parameter("fsm/goal_min_height_above_ground", goal_min_height_above_ground_);
     node_->get_parameter("fsm/goal_search_radius", goal_search_radius_);
     node_->get_parameter("fsm/goal_search_drone_weight", goal_search_drone_weight_);
-    node_->get_parameter("fsm/local_target_clearance", local_target_clearance_);
     if (goal_search_drone_weight_ < 0.0 || goal_search_drone_weight_ >= 1.0)
     {
       // At w >= 1 every point between goal and drone costs the same, so "nearest" is lost.
@@ -1141,63 +1139,10 @@ odom_vel_ = q * vel_body;
         break;
       }
     }
-    // ">=": a goal at the drone's position gives a global trajectory of duration 0. The loop then
-    // does not run, and with ">" the previous local target was kept, so a hold did not stop.
-    if (t >= planner_manager_->global_data_.global_duration_) // Last global point
+    if (t > planner_manager_->global_data_.global_duration_) // Last global point
     {
       local_target_pt_ = end_pt_;
       planner_manager_->global_data_.last_progress_time_ = planner_manager_->global_data_.global_duration_;
-    }
-
-    // Without a global planner the reference is a straight line to the goal, so the local target
-    // can land inside an obstacle. Rebound planning then fails on every retry ("terminal point of
-    // the current trajectory is in obstacle") and the drone stops for good. Slide the target along
-    // the reference into free space: first further on, to a point local_target_clearance_ beyond
-    // the obstacle (a target right behind the obstacle forces a tight path around it), so the
-    // optimizer routes around the obstacle between two free points; else back towards the drone.
-    if ((end_pt_ - local_target_pt_).norm() > 1e-3)
-    {
-      auto map = planner_manager_->grid_map_;
-      // getInflateOccupancy(): 1 = occupied (inflated), -1 = outside the map, 0 = free.
-      const auto blocked = [&map](const Eigen::Vector3d &p) { return map->getInflateOccupancy(p) != 0; };
-      if (blocked(local_target_pt_))
-      {
-        auto &global = planner_manager_->global_data_;
-        const double t_fine = std::max(1e-3, map->getResolution() / planner_manager_->pp_.max_vel_);
-        const double t_ahead = std::min(global.global_duration_, t + planning_horizen_ / planner_manager_->pp_.max_vel_);
-        double t_free = -1.0;
-        double t_first_free = -1.0; // first free point after the last blocked one
-        Eigen::Vector3d last_blocked = local_target_pt_;
-        for (double tf = t + t_fine; tf <= t_ahead && t_free < 0.0; tf += t_fine)
-        {
-          const Eigen::Vector3d p = global.getPosition(tf);
-          if (blocked(p))
-          {
-            last_blocked = p;
-            t_first_free = -1.0;
-            continue;
-          }
-          if (t_first_free < 0.0)
-            t_first_free = tf;
-          if ((p - last_blocked).norm() >= local_target_clearance_ || tf + t_fine > global.global_duration_)
-            t_free = tf;
-        }
-        if (t_free < 0.0)
-          t_free = t_first_free;
-        for (double tb = t - t_fine; tb > global.last_progress_time_ && t_free < 0.0; tb -= t_fine)
-          if (!blocked(global.getPosition(tb)))
-            t_free = tb;
-        if (t_free >= 0.0)
-        {
-          const Eigen::Vector3d moved = global.getPosition(t_free);
-          RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 2000,
-                               "Local target (%.2f, %.2f, %.2f) is inside an obstacle; moved it %.2f m %s along the reference to (%.2f, %.2f, %.2f).",
-                               local_target_pt_.x(), local_target_pt_.y(), local_target_pt_.z(), (moved - local_target_pt_).norm(),
-                               t_free > t ? "forward" : "back", moved.x(), moved.y(), moved.z());
-          local_target_pt_ = moved;
-          t = t_free;
-        }
-      }
     }
 
     if ((end_pt_ - local_target_pt_).norm() < (planner_manager_->pp_.max_vel_ * planner_manager_->pp_.max_vel_) / (2 * planner_manager_->pp_.max_acc_))

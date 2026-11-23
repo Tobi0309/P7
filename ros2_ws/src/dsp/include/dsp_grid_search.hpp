@@ -4,19 +4,8 @@
 #include "dsl/gridcost.h"
 #include "dsl/gridsearch.h"
 
-#include <chrono>
-#include <optional>
-#include <stdexcept>
-
 namespace dsp
 {
-
-// Thrown out of DspGridSearch::Plan() when the search runs past its deadline.
-class SearchBudgetExceeded : public std::runtime_error
-{
-public:
-    SearchBudgetExceeded() : std::runtime_error("DSP search time budget exceeded") {}
-};
 
 // DSL's GridCost with a tighter, still admissible heuristic. Every DSP cell costs at least 1
 // (free = 1 + height penalty, unknown = DSP_UNKNOWN, occupied/padded = DSP_OCCUPIED), so every
@@ -69,28 +58,6 @@ public:
     {
         return vertexMap[id] != nullptr;
     }
-
-    // Plan() throws SearchBudgetExceeded once `deadline` has passed (std::nullopt: no limit).
-    // Aborting is safe: DSL's SetGoal() calls Reset(), which clears the open list and every
-    // vertex's g/rhs, so the next SetStart()/SetGoal()/Plan() starts from a clean state. The
-    // vertices and edges built so far stay valid and are reused.
-    void SetDeadline(std::optional<std::chrono::steady_clock::time_point> deadline)
-    {
-        deadline_ = deadline;
-    }
-
-    // Called by DSL once per vertex expansion. The check runs before the base class touches
-    // the vertex, so an abort never leaves a half-expanded vertex behind.
-    bool Expand(CellVertex &from, bool fwd = true) override
-    {
-        if (deadline_ && std::chrono::steady_clock::now() > *deadline_) {
-            throw SearchBudgetExceeded();
-        }
-        return dsl::GridSearch<3>::Expand(from, fwd);
-    }
-
-private:
-    std::optional<std::chrono::steady_clock::time_point> deadline_;
 };
 
 }  // namespace dsp

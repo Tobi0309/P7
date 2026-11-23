@@ -6,12 +6,6 @@ if(NOT CMAKE_CXX_STANDARD)
   set(CMAKE_CXX_STANDARD 17)
 endif()
 
-# Optimised by default: DSL's templates are compiled into this node, and an unoptimised build
-# made every path_cost search several times slower.
-if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
-  set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
-endif()
-
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
@@ -23,14 +17,18 @@ find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(dsp_interfaces REQUIRED)
 find_package(eigen3_cmake_module REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(octomap_msgs REQUIRED)
 find_package(octomap REQUIRED)
 find_package(DSL REQUIRED)
+find_package(tf2_ros REQUIRED)
+find_package(tf2 REQUIRED)
 find_path(ROS2TOP_INCLUDE_DIR ros2top/ros2top.hpp REQUIRED)
 find_package(nlohmann_json REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 
 include_directories(
     include
@@ -44,12 +42,15 @@ add_executable(dsp src/dsp.cpp)
 ament_target_dependencies(dsp
     rclcpp
     dsp_interfaces
-    nav_msgs
     visualization_msgs
+    std_srvs
     octomap
     octomap_msgs
     Eigen3
-    DSL)
+    DSL
+    tf2
+    tf2_ros
+    tf2_geometry_msgs)
 target_include_directories(dsp PRIVATE ${ROS2TOP_INCLUDE_DIR})
 target_link_libraries(dsp nlohmann_json::nlohmann_json)
 ament_export_dependencies(eigen3_cmake_module)

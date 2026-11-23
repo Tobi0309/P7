@@ -30,9 +30,7 @@ def generate_launch_description():
     p7_config = os.path.join(get_package_share_directory('P7_launch'), 'config')
 
     mapping = include('P7_launch', 'mapping.launch.py')
-    # ego-planner plans and follows the path to each goal by itself.
     ego_planner = include('ego_planner', 'advanced_param_live.launch.py')
-    # DSP only answers /dsp/path_cost for frontier_viewpoint_selection; it does not navigate.
     dsp = include(
         'dsp', 'dsp_launch.py',
         launch_arguments={'params_file': os.path.join(p7_config, 'dsp.yaml')}.items(),
@@ -59,11 +57,11 @@ def generate_launch_description():
         }],
     )
 
-    # Goal on /goal (e.g. RViz) -> ego-planner (/move_base_simple/goal) at a fixed height
-    goal_converter_ego = Node(
+    # Goal on /goal -> DSP (dsp/set_goal service) at a fixed height
+    goal_converter_dsp = Node(
         package='P7_helper',
-        executable='goal_converter_ego',
-        name='goal_converter_ego',
+        executable='goal_converter_dsp',
+        name='goal_converter_dsp',
         output='screen',
         parameters=[{
             'use_sim_time': True,
@@ -77,7 +75,7 @@ def generate_launch_description():
         mapping,
         ego_planner,
         dsp,
-        goal_converter_ego,
+        goal_converter_dsp,
         pos_cmd_to_px4,
         px4_controller,
     ])

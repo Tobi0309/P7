@@ -14,7 +14,8 @@ def generate_launch_description():
             executable='dsp',
             name=name_space + '_dsp',
             parameters=[
-                Parameter("odom_frame_id", "map"),
+                Parameter("base_link_frame_id", "/body"),
+                Parameter("frame_id", "map"),
                 Parameter("map_topic", "/map"),
                 Parameter("use_3d", False)
             ]

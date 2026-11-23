@@ -2,22 +2,20 @@ frontier_viewpoint_selection_node:
   ros__parameters:
     optimized_topic: /frontier_viewpoints
     odometry_topic: /Odometry
-    # DSP only costs routes; it does not navigate.
     dsp_cost_service: /dsp/path_cost
+    planning_failure_service: /dsp/planning_failure
     finish_service: /frontier_viewpoint_selection/finish
+    dsp_set_goal_service: /dsp/set_goal
 
-    # Goals go straight to ego-planner (geometry_msgs/PoseStamped), which plans and follows
-    # the path itself. A new goal is published once when it is committed; a hold (the
-    # robot's current odometry pose) when REPLAN finds no new goal or FINISHED is called.
-    # ego-planner ignores frame_id: viewpoints and odometry must be in its map frame.
-    goal_topic: /move_base_simple/goal
-    # While this node is not running, goals wait, no new goal is committed and the
-    # no-progress timeout is paused. The active goal is sent again when it is back.
-    # Empty disables the check.
-    ego_planner_node: /drone_0_ego_planner_node
-    # After a REPLAN the drone keeps flying; a hold is sent only if no new goal is
-    # committed within this time [s]. 0 sends the hold at once.
-    replan_hold_delay_seconds: 2.0
+    # DSP's set_goal service (dsp_interfaces/srv/SetGoal) is called with a new goal
+    # on commitment, and with the robot's current odometry pose when REPLAN (or
+    # FINISHED) requests a hold. DSP acknowledges as soon as it has stored the goal
+    # and plans afterwards (failures arrive on planning_failure_service), so the
+    # timeout only matters if DSP is not running. A pose is re-sent until DSP
+    # answers success=true; a hold is refreshed from odometry on every send. A newer
+    # command replaces one that has not been acknowledged yet.
+    goal_command_retry_seconds: 0.5
+    goal_command_timeout_seconds: 2.0
 
     # The DSP-verified viewpoint visit order is logged when a goal is selected.
     # Ranking is done here, not in the optimizer: the optimizer's score stays unchanged.
@@ -62,6 +60,9 @@ frontier_viewpoint_selection_node:
     cost_key_quantization: 0.5
     # A DSP cost at or above this means the route crosses an obstacle or its padding.
     max_valid_path_cost: 1.0e9
+
+    # DSP sends failures by calling the service server at /dsp/planning_failure.
+    # An active navigation goal enters REPLAN upon an acknowledged notification.
 
     missing_goal_grace_seconds: 3.0
     # When the committed frontier ID disappears (split/merge in segmentation), continue to

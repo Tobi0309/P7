@@ -7,7 +7,6 @@ from launch.actions import (
     DeclareLaunchArgument,
     SetEnvironmentVariable,
 )
-from launch.conditions import IfCondition
 from launch.logging import launch_config
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -28,11 +27,6 @@ def generate_launch_description():
         default_value='false',
         description='Use simulated time.',
     )
-    rviz_argument = DeclareLaunchArgument(
-        'rviz',
-        default_value='true',
-        description='Start RViz (false for headless runs).',
-    )
 
     with open(p7_share / 'urdf' / 'holybro_x500v2_drone.urdf') as urdf_file:
         robot_description = urdf_file.read()
@@ -42,7 +36,6 @@ def generate_launch_description():
         executable='rviz2',
         arguments=['-d', LaunchConfiguration('rviz_config')],
         parameters=[{'use_sim_time': LaunchConfiguration('use_sim_time')}],
-        condition=IfCondition(LaunchConfiguration('rviz')),
         additional_env={
             'LD_PRELOAD': '/usr/lib/x86_64-linux-gnu/liboctomap.so'
         },
@@ -88,7 +81,6 @@ def generate_launch_description():
     return LaunchDescription(
         [
             use_sim_time_argument,
-            rviz_argument,
             rviz_config_argument,
             rviz,
             SetEnvironmentVariable('RCUTILS_LOGGING_BUFFERED_STREAM', '0'),
