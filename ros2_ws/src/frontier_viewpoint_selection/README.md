@@ -11,7 +11,7 @@ Committed frontier viewpoint selection based on optimizer information score and 
 | Service client | `/dsp/path_cost` / `dsp_interfaces/srv/PathCost` | Asynchronous directed path cost and distance queries. |
 | Service server | `/dsp/planning_failure` / `std_srvs/srv/Trigger` | Called by DSP whenever it fails to plan to the current goal. While navigating, the committed goal is put on cooldown and the selector enters REPLAN (response `success=true`); otherwise the call is answered with `success=false`. |
 | Service server | `/frontier_viewpoint_selection/finish` / `std_srvs/srv/Trigger` | Latches the terminal FINISHED state, sends a hold at the latest odometry pose to DSP's `set_goal`, and stops dispatching goals until node restart. |
-| Service client | `/dsp/set_goal` / `dsp_interfaces/srv/SetGoal` | Request `geometry_msgs/PoseStamped goal`, response `bool success`, `string message`. Each goal or hold pose is re-sent every `goal_command_retry_seconds` until a response has `success=true`; a request with no answer is re-sent after `goal_command_timeout_seconds`. A newer command replaces one that has not been acknowledged yet. The service name is set by `dsp_set_goal_service`. |
+| Service client | `/dsp/set_goal` / `dsp_interfaces/srv/SetGoal` | Request `geometry_msgs/PoseStamped goal`, response `bool success`, `string message`. DSP answers as soon as it has stored the goal and plans afterwards. Each goal or hold pose is re-sent every `goal_command_retry_seconds` until a response has `success=true`; a request with no answer (DSP not running) is re-sent after `goal_command_timeout_seconds`. A hold is refreshed from the latest odometry on every send. A newer command replaces one that has not been acknowledged yet. The service name is set by `dsp_set_goal_service`. |
 | Output | `~/ordered_viewpoints` / `nav_msgs/msg/Path` | Ordered poses, first element is currently committed destination if present, followed by DSP-verified greedy future destinations. Not a navigable path trajectory. |
 | Output | `~/state` / `std_msgs/msg/String` | SELECT_GOAL, NAVIGATING, REVALIDATE, REPLAN, GOAL_REACHED, FINISHED. |
 
@@ -19,7 +19,11 @@ DSP's `set_goal` is a desired-goal interface. A hold command replaces DSP's goal
 
 ## Arrival and state machine
 
-Arrival uses the 3D Euclidean odometry-to-committed-goal distance, and enters GOAL_REACHED immediately at `arrival_position_tolerance` (default `0.5` m). After `observation_settle_seconds`, the frontier is placed on cooldown and a new goal is selected. A missing goal, timeout with no odometry progress, reported planning failure, or confirmed improvement can transition to REPLAN. REPLAN sends the current odometry pose to DSP's `set_goal`, clears the committed goal, then returns to SELECT_GOAL. FINISHED is terminal until process restart.
+Arrival uses the 3D Euclidean odometry-to-committed-goal distance, and enters GOAL_REACHED immediately at `arrival_position_tolerance` (default `0.5` m). After `observation_settle_seconds`, the frontier is placed on cooldown and a new goal is selected. A missing goal, timeout with no odometry progress, reported planning failure, or confirmed improvement can transition to REPLAN. Before a missing goal counts, the selector looks for a viewpoint within `committed_goal_reassociation_distance` of the committed pose (segmentation gives a split or merged frontier a new ID) and continues to it. REPLAN sends the current odometry pose to DSP's `set_goal`, clears the committed goal, then returns to SELECT_GOAL. FINISHED is terminal until process restart.
+
+## Path-cost queries
+
+One `/dsp/path_cost` request is in flight at a time. The queue is rebuilt from the current shortlist every tick, in priority order: robot to each candidate (and to the committed goal), committed goal to the next candidates, then pairwise edges between the `pairwise_cost_candidates`, shortest first. An empty path, or a cost at or above `max_valid_path_cost` (a route through an obstacle or its padding), marks the edge unreachable for `failed_path_retry_seconds`.
 
 ## Service usage
 

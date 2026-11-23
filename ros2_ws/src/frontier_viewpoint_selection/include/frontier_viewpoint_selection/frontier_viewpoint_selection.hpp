@@ -99,7 +99,7 @@ private:
     void publishStatus();
     void logSelectedOrder() const;
     void sendHoldPose();
-    void sendCommand(const geometry_msgs::msg::PoseStamped &pose);
+    void sendCommand(const geometry_msgs::msg::PoseStamped &pose, bool hold = false);
     void cancelCommand();
     void serviceCommand();
     void commandResponse(uint64_t token, rclcpp::Client<SetGoal>::SharedFuture future);
@@ -107,6 +107,7 @@ private:
     void abandonGoal(const char *reason);
     void completeGoal();
     bool currentGoalAvailable() const;
+    bool reassociateGoal();
     bool arrived() const;
     double currentUtility() const;
     void processStateMachine();
@@ -167,6 +168,9 @@ private:
 
     // Latest goal/hold pose; re-sent to DSP's set_goal service until it answers success=true.
     std::optional<geometry_msgs::msg::PoseStamped> pending_command_;
+    // A hold is the robot's current pose: refreshed from odometry on every (re)send.
+    bool pending_command_is_hold_{false};
+    Clock::time_point command_created_{};
     bool command_inflight_{false};
     uint64_t command_request_token_{0};
     int64_t command_request_id_{0};
@@ -204,6 +208,8 @@ private:
     double service_interval_{0.15};
     double cost_origin_distance_{1.5};
     double key_quantization_{0.5};
+    double max_valid_path_cost_{1.0e9};
+    double reassociation_distance_{1.0};
     double missing_grace_{3.0};
     double no_progress_timeout_{50.0};
     double progress_increment_{0.5};

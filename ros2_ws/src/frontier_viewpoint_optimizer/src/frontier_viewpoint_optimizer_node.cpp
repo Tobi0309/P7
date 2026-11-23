@@ -124,6 +124,10 @@ FrontierViewpointOptimizer::FrontierViewpointOptimizer()
         "fov_marker_topic", "/frontier_viewpoints/fov_markers");
 
     expected_resolution_ = declare_parameter<double>("planning_voxel_size", 0.5);
+    // Voxel padding, same names and meaning as DSP's: a candidate voxel whose centre is closer
+    // than obstacle_padding [m] to an occupied voxel is rejected, so DSP can plan to it.
+    padding_enabled_ = declare_parameter<bool>("obstacle_padding_enabled", true);
+    padding_ = declare_parameter<double>("obstacle_padding", 0.5);
     hfov_ = radians(declare_parameter<double>("horizontal_fov_deg", 360.0));
     vmin_ = radians(declare_parameter<double>("vertical_fov_min_deg", -88.5));
     vmax_ = radians(declare_parameter<double>("vertical_fov_max_deg", 46.5));
@@ -174,6 +178,7 @@ FrontierViewpointOptimizer::FrontierViewpointOptimizer()
         }
     };
     require(expected_resolution_ > 0.0, "planning_voxel_size must be positive");
+    require(padding_ >= 0.0, "obstacle_padding must be nonnegative");
     require(hfov_ > 0.0 && hfov_ <= 2.0 * PI, "horizontal_fov_deg must be in (0, 360]");
     require(vmin_ < vmax_, "vertical FOV minimum must be smaller than maximum");
     require(min_range_ >= 0.0 && max_range_ > min_range_, "Invalid sensor range");
@@ -187,6 +192,30 @@ FrontierViewpointOptimizer::FrontierViewpointOptimizer()
     require(refinement_half_extent_ >= 0.0 && refinement_margin_ >= 0.0, "Invalid refinement clearance");
     require(geometry_tolerance_ >= 0.0 && cached_visibility_min_fraction_ >= 0.0 && cached_visibility_min_fraction_ <= 1.0, "Invalid geometry tolerance / visibility threshold");
     require(marker_alpha_ >= 0.0 && marker_alpha_ <= 1.0 && marker_segments_ >= 8, "Invalid marker configuration");
+
+    // Offsets (in voxels) covered by the padding of an occupied voxel: a voxel at offset d has
+    // its centre sqrt(sum(max(|d_i| - 0.5, 0)^2)) voxels from that voxel's surface. This is the
+    // rule DSP uses for its obstacle padding.
+    if (padding_enabled_ && padding_ > 0.0) {
+        const double r = padding_ / expected_resolution_;
+        const double r2 = r * r - 1.0e-9;
+        const int reach = static_cast<int>(std::ceil(r + 0.5));
+        for (int dz = -reach; dz <= reach; ++dz) {
+            for (int dy = -reach; dy <= reach; ++dy) {
+                for (int dx = -reach; dx <= reach; ++dx) {
+                    if (dx == 0 && dy == 0 && dz == 0) {
+                        continue;
+                    }
+                    const double gx = std::max(std::abs(dx) - 0.5, 0.0);
+                    const double gy = std::max(std::abs(dy) - 0.5, 0.0);
+                    const double gz = std::max(std::abs(dz) - 0.5, 0.0);
+                    if (gx * gx + gy * gy + gz * gz < r2) {
+                        padding_offsets_.push_back({dx, dy, dz});
+                    }
+                }
+            }
+        }
+    }
 
     const auto transient_qos = rclcpp::QoS(1).reliable().transient_local();
     frontier_sub_ = create_subscription<FrontierArray>(
@@ -227,11 +256,11 @@ FrontierViewpointOptimizer::FrontierViewpointOptimizer()
         optimization_workers_.emplace_back(&FrontierViewpointOptimizer::workerLoop, this);
     }
     RCLCPP_INFO(get_logger(),
-        "Optimizer started: native voxel centers (%.2f m), 6-connected OctoMap "
-        "reachability; no DSP dependency", expected_resolution_);
-    RCLCPP_WARN(get_logger(),
-        "The coarse voxel search assumes the entire UAV collision envelope "
-        "fits within one planning voxel. Verify this before flight.");
+        "Optimizer started on %s and %s: native voxel centers (%.2f m), 6-connected "
+        "OctoMap reachability, voxel padding %s (%.2f m, %zu offsets; keep equal to DSP)",
+        map_topic_.c_str(), odom_topic_.c_str(), expected_resolution_,
+        padding_enabled_ ? "on" : "off", padding_enabled_ ? padding_ : 0.0,
+        padding_offsets_.size());
 }
 
 FrontierViewpointOptimizer::~FrontierViewpointOptimizer() {
@@ -388,12 +417,17 @@ void FrontierViewpointOptimizer::compactQueuesLocked() {
     compact(validation_pending_, validation_set_);
 }
 
+// True if the viewpoint's voxel is occupied or (with voxel padding) inside an obstacle's padding.
 bool FrontierViewpointOptimizer::endpointOccupied(const Map &map, const Candidate &candidate) const {
     if (!map || !candidate.valid()) {
         return false;
     }
     const auto *node = map->search(candidate.position.x(), candidate.position.y(), candidate.position.z());
-    return node && map->isNodeOccupied(node);
+    if (node && map->isNodeOccupied(node)) {
+        return true;
+    }
+    Key key;
+    return toKey(map, candidate.position, key) && !clearOfObstacles(map, key);
 }
 
 // Returns 1 if at least one sampled known-free voxel is still an XY frontier,
@@ -713,6 +747,26 @@ bool FrontierViewpointOptimizer::cellFree(
     return node != nullptr && !map->isNodeOccupied(node);
 }
 
+bool FrontierViewpointOptimizer::clearOfObstacles(
+    const Map &map, const Key &key) const {
+    constexpr int max_key = std::numeric_limits<octomap::key_type>::max();
+    for (const auto &offset : padding_offsets_) {
+        const int x = int(key.k[0]) + offset[0];
+        const int y = int(key.k[1]) + offset[1];
+        const int z = int(key.k[2]) + offset[2];
+        if (x < 0 || y < 0 || z < 0 || x > max_key || y > max_key || z > max_key) {
+            continue;
+        }
+        const auto *node = map->search(Key(static_cast<octomap::key_type>(x),
+                                           static_cast<octomap::key_type>(y),
+                                           static_cast<octomap::key_type>(z)));
+        if (node && map->isNodeOccupied(node)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 // Conservative refinement: every native grid cell intersecting the swept
 // axis-aligned UAV box must be observed free. Coarse planning relies on the
 // separate assumption that the UAV is fully contained in a single 0.5 m cell.
@@ -970,7 +1024,7 @@ FrontierViewpointOptimizer::sampleCandidateKeys(
         }
         Key key;
         if (toKey(map, position, key) && cellFree(map, key) &&
-            unique.insert(key).second) {
+            clearOfObstacles(map, key) && unique.insert(key).second) {
             pool.push_back(key);
         }
     };
@@ -1486,7 +1540,7 @@ void FrontierViewpointOptimizer::validationWorkerLoop() {
             }
             entry.last_validation = SteadyClock::now();
             if (occupied || blocked) {
-                RCLCPP_WARN(get_logger(), "Viewpoint %u invalidated by %s", task.id, occupied ? "occupied destination" : "definitively blocked sightlines");
+                RCLCPP_WARN(get_logger(), "Viewpoint %u invalidated by %s", task.id, occupied ? "occupied or padded destination" : "definitively blocked sightlines");
                 entry.result.reset();
                 entry.validated = false;
                 entry.observation_keys.clear();
@@ -1579,7 +1633,7 @@ void FrontierViewpointOptimizer::workerLoop() {
         }
         if (best.valid() && latest_map && latest_map.get() != snapshot.get()) {
             Key goal;
-            if (!toKey(latest_map, best.position, goal) || !cellFree(latest_map, goal) || !pathStillFree(latest_map, best.path_keys) || !candidateStillUseful(latest_map, latest_frontier, best)) {
+            if (!toKey(latest_map, best.position, goal) || !cellFree(latest_map, goal) || !clearOfObstacles(latest_map, goal) || !pathStillFree(latest_map, best.path_keys) || !candidateStillUseful(latest_map, latest_frontier, best)) {
                 best = Candidate{};
             }
         }

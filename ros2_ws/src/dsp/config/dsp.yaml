@@ -1,0 +1,43 @@
+# Default DSP parameters (dsp_launch.py loads this unless params_file is given).
+# The project configuration lives in P7_launch/config/dsp.yaml.
+/**:
+  ros__parameters:
+    # DSP plans in odom_frame_id; the drone position is the TF of base_link_frame_id.
+    odom_frame_id: camera_init
+    base_link_frame_id: body
+    use_3d: true
+    # octomap_msgs/Octomap (use_3d) or nav_msgs/OccupancyGrid. DSP only needs occupancy, so the
+    # binary map is enough.
+    map_topic: /octomap_binary
+    # Rate [Hz] at which the newest map message is applied (<= 0: every message).
+    map_update_rate: 2.0
+    # Slack [m] added around the octree bounds when the voxel grid is (re)allocated, so the grid
+    # and the search graphs on it are not rebuilt every time the map grows.
+    map_bounds_margin_xy: 10.0
+    map_bounds_margin_z: 3.0
+
+    # Voxel padding: voxels whose centre is closer than obstacle_padding [m] to an occupied voxel
+    # are blocked. Keep both values identical in frontier_viewpoint_optimizer.
+    obstacle_padding_enabled: true
+    obstacle_padding: 0.5
+    # A start or goal inside a blocked voxel (e.g. the drone on the ground) is moved to the
+    # nearest free voxel within this radius [m].
+    endpoint_snap_radius: 1.0
+
+    # Cost of an unknown voxel (a free voxel costs 1).
+    DSP_UNKNOWN: 10000
+    # Height preference: + |z - (floor + optimal_voxel_height)| * optimal_voxel_height_cost.
+    height_kernel_size: 3
+    optimal_voxel_height: 6
+    optimal_voxel_height_cost: 10
+
+    # Periodic replanning [Hz] (<= 0: only on new goals) and the look-ahead goal sent to
+    # ego-planner on /move_base_simple/goal.
+    plan_rate: 0.2
+    goal_publish_rate: 1.0
+    goal_voxels_ahead: 12
+    spline_step: 0.01
+
+    # Each lazily expanded search (navigation and path_cost) is released above this many
+    # vertices (roughly 12-25 KB each).
+    max_search_vertices: 50000

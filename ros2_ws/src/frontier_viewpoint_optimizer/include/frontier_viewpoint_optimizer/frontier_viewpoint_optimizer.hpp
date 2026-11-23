@@ -11,6 +11,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 
+#include <array>
 #include <chrono>
 #include <condition_variable>
 #include <cstddef>
@@ -131,6 +132,8 @@ private:
     bool toKey(const Map &map, const Vector &point, Key &key) const;
     Vector keyCenter(const Map &map, const Key &key) const;
     bool cellFree(const Map &map, const Key &key) const;
+    // False if an occupied voxel is within the voxel padding (same rule as DSP's obstacle padding).
+    bool clearOfObstacles(const Map &map, const Key &key) const;
     bool boxFree(const Map &map, const Vector &lower, const Vector &upper) const;
     bool validRefinementMotion(const Map &map, const Vector &start,
                                const Vector &end, const Key &base_key) const;
@@ -208,6 +211,10 @@ private:
     std::string marker_topic_;
 
     double expected_resolution_;
+    // Voxel padding: candidate viewpoints keep this clearance [m] from occupied voxels.
+    bool padding_enabled_{true};
+    double padding_{0.5};
+    std::vector<std::array<int, 3>> padding_offsets_;
     double hfov_;
     double vmin_;
     double vmax_;

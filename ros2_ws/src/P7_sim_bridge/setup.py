@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             'isaac_lidar_to_livox_lidar = P7_sim_bridge.isaac_lidar_to_livox_lidar:main',
+            'isaac_cam_to_intel_cam = P7_sim_bridge.isaac_cam_to_intel_cam:main',
             'joy_to_drone_velocities = P7_sim_bridge.joy_to_drone_velocities:main',
         ],
     },

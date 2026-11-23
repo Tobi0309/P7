@@ -74,7 +74,8 @@ def generate_launch_description():
     octomap_node_fov_filtered = Node(
             package='octomap_server',
             executable='octomap_server_node',
-            name='octomap_server',
+            # Distinct name: two nodes called octomap_server share parameter and reset services.
+            name='octomap_server_filtered',
             output='log', #'screen',
             parameters=[{
                 'frame_id': f'camera_init',
@@ -116,6 +117,15 @@ def generate_launch_description():
     	parameters=[{'use_sim_time': True}],
     )
 
+    pointcloud_fov_filter = Node(
+    	package='P7_mapping',
+    	executable='pointcloud_fov_filter',
+    	name='pointcloud_fov_filter',
+    	output='screen',
+    	parameters=[{'use_sim_time': True}],
+    )
+
+
     return LaunchDescription([
         publish_robot_description,
         fastlio,
@@ -124,4 +134,5 @@ def generate_launch_description():
         octomap_node_fov_filtered,
         imu_propagation,
         odometry_transformer,
+        pointcloud_fov_filter,
     ])

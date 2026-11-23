@@ -1,12 +1,19 @@
-frontier_viewpoint_optimizer_node:
+# Keyed /** so it applies whatever name the launch file gives the node.
+/**:
   ros__parameters:
     # Input messages must be in the same frame; map must have native 0.5 m resolution.
     frontier_topic: /frontier_segments
-    octomap_topic: /octomap_binary
-    odometry_topic: /Odometry
+    octomap_topic: /octomap_binary_filtered
+    odometry_topic: /Odometry_base_link
     optimized_topic: /frontier_viewpoints
     fov_marker_topic: /frontier_viewpoints/fov_markers
     planning_voxel_size: 0.5
+
+    # Voxel padding: reject candidate viewpoints whose voxel centre is closer than
+    # obstacle_padding [m] to an occupied voxel. Keep both values identical to DSP's
+    # (P7_launch/config/dsp.yaml), otherwise DSP treats such viewpoints as blocked.
+    obstacle_padding_enabled: false
+    obstacle_padding: 0.5
 
     # Real sensor convention: level LiDAR model, yaw-only frame unless transformed upstream.
     horizontal_fov_deg: 360.0
@@ -48,7 +55,7 @@ frontier_viewpoint_optimizer_node:
     altitude_excess_scale: 2.0
     excessive_altitude_penalty_weight: 1.2
 
-    enable_candidate_refining: true
+    enable_candidate_refining: false
     refinement_iterations: 2
     refinement_uav_half_extent: 0.18
     refinement_clearance_margin: 0.01

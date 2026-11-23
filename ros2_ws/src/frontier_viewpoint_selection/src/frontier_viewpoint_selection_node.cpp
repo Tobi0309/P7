@@ -65,6 +65,12 @@ FrontierViewpointSelection::FrontierViewpointSelection() : rclcpp::Node("frontie
     service_interval_ = declare_parameter<double>("dsp_request_interval_seconds", 0.15);
     cost_origin_distance_ = declare_parameter<double>("cost_origin_requery_distance", 1.5);
     key_quantization_ = declare_parameter<double>("cost_key_quantization", 0.5);
+    // DSP keeps obstacles in its graph at a cost of 2e9, so a cost this high means the route
+    // goes through an obstacle or its padding: treat the edge as unreachable.
+    max_valid_path_cost_ = declare_parameter<double>("max_valid_path_cost", 1.0e9);
+    // When the committed frontier ID disappears (re-segmentation), keep navigating to the nearest
+    // viewpoint within this distance [m] instead of replanning. 0 disables.
+    reassociation_distance_ = declare_parameter<double>("committed_goal_reassociation_distance", 1.0);
     missing_grace_ = declare_parameter<double>("missing_goal_grace_seconds", 3.0);
     no_progress_timeout_ = declare_parameter<double>("navigation_no_progress_timeout_seconds", 50.0);
     progress_increment_ = declare_parameter<double>("navigation_progress_increment", 0.5);
@@ -88,6 +94,9 @@ FrontierViewpointSelection::FrontierViewpointSelection() : rclcpp::Node("frontie
     }
     if (cost_origin_distance_ <= 0.0 || key_quantization_ <= 0.0) {
         throw std::invalid_argument("Invalid DSP cost-key parameter.");
+    }
+    if (!(max_valid_path_cost_ > 0.0) || !(reassociation_distance_ >= 0.0)) {
+        throw std::invalid_argument("max_valid_path_cost must be positive and committed_goal_reassociation_distance nonnegative.");
     }
     if (command_retry_ <= 0.0 || command_timeout_ <= 0.0) {
         throw std::invalid_argument("goal_command_retry_seconds and goal_command_timeout_seconds must be positive.");
@@ -273,13 +282,15 @@ void FrontierViewpointSelection::sendHoldPose() {
     hold.header.stamp = now();
     hold.pose.position = pointMsg(robot_);
     hold.pose.orientation = robot_orientation_;
-    sendCommand(hold);
+    sendCommand(hold, true);
 }
 
-void FrontierViewpointSelection::sendCommand(const geometry_msgs::msg::PoseStamped &pose) {
+void FrontierViewpointSelection::sendCommand(const geometry_msgs::msg::PoseStamped &pose, bool hold) {
     // The newest command replaces any older one that has not been acknowledged yet.
     cancelCommand();
     pending_command_ = pose;
+    pending_command_is_hold_ = hold;
+    command_created_ = Clock::now();
     command_attempts_ = 0;
     command_last_sent_ = Clock::time_point{};
     serviceCommand();
@@ -292,6 +303,7 @@ void FrontierViewpointSelection::cancelCommand() {
     }
     ++command_request_token_;
     pending_command_.reset();
+    pending_command_is_hold_ = false;
 }
 
 void FrontierViewpointSelection::serviceCommand() {
@@ -315,6 +327,13 @@ void FrontierViewpointSelection::serviceCommand() {
     if (!command_client_->service_is_ready()) {
         RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000, "Waiting for DSP set_goal service %s.", command_service_.c_str());
         return;
+    }
+    if (pending_command_is_hold_ && have_odom_ && !odom_frame_.empty()) {
+        // A hold means "stay where the robot is now", not where it was when the hold was issued.
+        pending_command_->header.frame_id = odom_frame_;
+        pending_command_->header.stamp = now();
+        pending_command_->pose.position = pointMsg(robot_);
+        pending_command_->pose.orientation = robot_orientation_;
     }
     auto request = std::make_shared<SetGoal::Request>();
     request->goal = *pending_command_;
@@ -346,8 +365,10 @@ void FrontierViewpointSelection::commandResponse(uint64_t token, rclcpp::Client<
     if (success) {
         // success=true only means DSP accepted the goal; DSP reports later planning failures
         // separately through the planning failure service.
-        RCLCPP_INFO(get_logger(), "Goal (%.2f, %.2f, %.2f) accepted by DSP after %u attempt(s): %s", p.x, p.y, p.z, command_attempts_, message.c_str());
+        const double latency_ms = std::chrono::duration<double, std::milli>(Clock::now() - command_created_).count();
+        RCLCPP_INFO(get_logger(), "%s (%.2f, %.2f, %.2f) accepted by DSP after %u attempt(s), %.0f ms: %s", pending_command_is_hold_ ? "Hold" : "Goal", p.x, p.y, p.z, command_attempts_, latency_ms, message.c_str());
         pending_command_.reset();
+        pending_command_is_hold_ = false;
         return;
     }
     RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 5000, "Goal (%.2f, %.2f, %.2f) not accepted by DSP yet (attempt %u): %s; re-sending every %.2f s.", p.x, p.y, p.z, command_attempts_, message.c_str(), command_retry_);
@@ -402,7 +423,9 @@ void FrontierViewpointSelection::costResponse(uint64_t token, PairKey key, rclcp
     record.updated = Clock::now();
     try {
         const auto response = future.get();
-        record.valid = response && response->path.poses.size() >= 2 && std::isfinite(response->cost) && std::isfinite(response->distance) && response->cost >= 0.0 && response->distance > 0.0;
+        // DSP answers "no path" with an empty path; a cost above max_valid_path_cost means the
+        // route crosses an obstacle or its padding.
+        record.valid = response && response->path.poses.size() >= 2 && std::isfinite(response->cost) && std::isfinite(response->distance) && response->cost >= 0.0 && response->cost < max_valid_path_cost_ && response->distance > 0.0;
         if (record.valid) {
             record.cost = response->cost;
             record.distance = response->distance;
@@ -439,29 +462,12 @@ void FrontierViewpointSelection::requestNextCost() {
     if (std::chrono::duration<double>(current - last_cost_request_sent_).count() < service_interval_) {
         return;
     }
-    const auto relevant_ids = shortlist();
-    const auto endpointIsRelevant = [&](const Vector &p) {
-        if (makeKey(p, p) == makeKey(cost_anchor_, cost_anchor_)) {
-            return true;
-        }
-        if (goal_id_ && makeKey(p, p) == makeKey(point(goal_pose_.pose.position), point(goal_pose_.pose.position))) {
-            return true;
-        }
-        for (uint32_t id : relevant_ids) {
-            const Vector destination = point(views_.at(id).data.viewpoint.pose.position);
-            if (makeKey(p, p) == makeKey(destination, destination)) {
-                return true;
-            }
-        }
-        return false;
-    };
+    // refreshQueries() rebuilds the queue from the current shortlist every tick, in priority
+    // order, so every queued edge is still relevant.
     while (!queue_.empty()) {
         EdgeRequest edge = queue_.front();
         queue_.pop_front();
         queued_.erase(edge.key);
-        if (!endpointIsRelevant(edge.from) || !endpointIsRelevant(edge.to)) {
-            continue;
-        }
         const auto failed = failed_until_.find(edge.key);
         if (getCost(edge.from, edge.to) || (failed != failed_until_.end() && current < failed->second)) {
             continue;
@@ -758,10 +764,16 @@ void FrontierViewpointSelection::updateCostAnchor() {
 }
 
 void FrontierViewpointSelection::refreshQueries() {
+    // Rebuilt from scratch every tick so the queue only holds edges of the current shortlist,
+    // in priority order. Appending instead let it grow without bound (222 edges in the field
+    // log) with the robot-to-viewpoint edges stuck behind pairwise ones.
+    queue_.clear();
+    queued_.clear();
     if (!have_odom_ || !have_views_ || frame_.empty() || frame_ != odom_frame_) {
         return;
     }
     const auto ids = shortlist();
+    // 1. Robot to every candidate and to the committed goal: needed before any goal is chosen.
     for (uint32_t id : ids) {
         queueCost(cost_anchor_, point(views_.at(id).data.viewpoint.pose.position));
     }
@@ -772,6 +784,15 @@ void FrontierViewpointSelection::refreshQueries() {
         return;
     }
     const std::size_t count = std::min(ids.size(), static_cast<std::size_t>(lookahead_size_));
+    // 2. Committed goal to the next candidates: the continuation of the current route.
+    if (goal_id_) {
+        for (std::size_t j = 0; j < count; ++j) {
+            if (*goal_id_ != ids[j]) {
+                queueCost(point(goal_pose_.pose.position), point(views_.at(ids[j]).data.viewpoint.pose.position));
+            }
+        }
+    }
+    // 3. Pairwise edges between the lookahead candidates, shortest first.
     struct DirectedPair { Vector from; Vector to; double distance; };
     std::vector<DirectedPair> pairs;
     pairs.reserve(count * (count - (count > 0 ? 1U : 0U)));
@@ -789,17 +810,47 @@ void FrontierViewpointSelection::refreshQueries() {
     for (const auto &pair : pairs) {
         queueCost(pair.from, pair.to);
     }
-    if (goal_id_) {
-        for (std::size_t j = 0; j < count; ++j) {
-            if (*goal_id_ != ids[j]) {
-                queueCost(point(goal_pose_.pose.position), point(views_.at(ids[j]).data.viewpoint.pose.position));
-            }
-        }
-    }
 }
 
 bool FrontierViewpointSelection::currentGoalAvailable() const {
     return goal_id_ && views_.count(*goal_id_) != 0;
+}
+
+// The segmentation gives a frontier a new ID when it is split or merged, so the committed ID
+// can vanish although a viewpoint still exists at (almost) the same place. Adopt that viewpoint
+// instead of abandoning the goal and sending a hold.
+bool FrontierViewpointSelection::reassociateGoal() {
+    if (!goal_id_ || reassociation_distance_ <= 0.0) {
+        return false;
+    }
+    const Vector committed = point(goal_pose_.pose.position);
+    std::optional<uint32_t> best;
+    double best_distance = reassociation_distance_;
+    for (const auto &entry : views_) {
+        if (!canConsider(entry.first)) {
+            continue;
+        }
+        const double distance = (point(entry.second.data.viewpoint.pose.position) - committed).norm();
+        if (distance <= best_distance) {
+            best_distance = distance;
+            best = entry.first;
+        }
+    }
+    if (!best) {
+        return false;
+    }
+    const uint32_t old_id = *goal_id_;
+    goal_id_ = *best;
+    if (best_distance > 0.25) {
+        goal_pose_ = views_.at(*best).data.viewpoint;
+        goal_pose_.header.frame_id = frame_;
+        goal_pose_.header.stamp = now();
+        closest_goal_distance_ = (robot_ - point(goal_pose_.pose.position)).norm();
+        last_progress_time_ = Clock::now();
+        sendCommand(goal_pose_);
+    }
+    RCLCPP_INFO(get_logger(), "Committed frontier %u is now frontier %u (viewpoint %.2f m away); continuing to it.", old_id, *best, best_distance);
+    return true;
 }
 
 bool FrontierViewpointSelection::arrived() const {
@@ -950,7 +1001,7 @@ void FrontierViewpointSelection::processStateMachine() {
             state_ = State::GOAL_REACHED;
             return;
         }
-        if (!currentGoalAvailable()) {
+        if (!currentGoalAvailable() && !reassociateGoal()) {
             if (missing_since_ == Clock::time_point{}) {
                 missing_since_ = current;
             }

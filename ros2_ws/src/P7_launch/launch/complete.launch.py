@@ -27,10 +27,20 @@ def generate_launch_description():
         description='Launch RViz (P7_launch rviz.launch.py)',
     )
 
+    p7_config = os.path.join(get_package_share_directory('P7_launch'), 'config')
+
     mapping = include('P7_launch', 'mapping.launch.py')
     ego_planner = include('ego_planner', 'advanced_param_live.launch.py')
-    dsp = include('dsp', 'dsp_launch.py')
-    rviz = include('P7_launch', 'rviz.launch.py', condition=IfCondition(launch_rviz))
+    dsp = include(
+        'dsp', 'dsp_launch.py',
+        launch_arguments={'params_file': os.path.join(p7_config, 'dsp.yaml')}.items(),
+    )
+    # mapping.launch.py already starts robot_state_publisher and the static TFs.
+    rviz = include(
+        'P7_launch', 'rviz.launch.py',
+        condition=IfCondition(launch_rviz),
+        launch_arguments={'publish_robot_description': 'false'}.items(),
+    )
     px4_controller = include('P7_px4_fastlio_bridge', 'px4_fastlio_bridge.launch.py', launch_arguments={'use_sim_time': 'true'}.items())
 
 
@@ -60,12 +70,12 @@ def generate_launch_description():
     )
     
     return LaunchDescription([
-        declare_launch_rviz,
+        # declare_launch_rviz,
+        # rviz,
         mapping,
         ego_planner,
         dsp,
         goal_converter_dsp,
         pos_cmd_to_px4,
-        rviz,
         px4_controller,
     ])

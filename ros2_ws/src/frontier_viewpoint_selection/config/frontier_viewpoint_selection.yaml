@@ -9,9 +9,11 @@ frontier_viewpoint_selection_node:
 
     # DSP's set_goal service (dsp_interfaces/srv/SetGoal) is called with a new goal
     # on commitment, and with the robot's current odometry pose when REPLAN (or
-    # FINISHED) requests a hold. Each pose is re-sent until DSP responds
-    # success=true; a request with no answer is abandoned and re-sent after the
-    # timeout. A newer command replaces one that has not been acknowledged yet.
+    # FINISHED) requests a hold. DSP acknowledges as soon as it has stored the goal
+    # and plans afterwards (failures arrive on planning_failure_service), so the
+    # timeout only matters if DSP is not running. A pose is re-sent until DSP
+    # answers success=true; a hold is refreshed from odometry on every send. A newer
+    # command replaces one that has not been acknowledged yet.
     goal_command_retry_seconds: 0.5
     goal_command_timeout_seconds: 2.0
 
@@ -53,14 +55,19 @@ frontier_viewpoint_selection_node:
     pairwise_cost_cache_ttl_seconds: 90.0
     failed_path_retry_seconds: 10.0
     dsp_service_timeout_seconds: 4.0
-    dsp_request_interval_seconds: 0.15
+    dsp_request_interval_seconds: 0.05
     cost_origin_requery_distance: 1.5
     cost_key_quantization: 0.5
+    # A DSP cost at or above this means the route crosses an obstacle or its padding.
+    max_valid_path_cost: 1.0e9
 
     # DSP sends failures by calling the service server at /dsp/planning_failure.
     # An active navigation goal enters REPLAN upon an acknowledged notification.
 
     missing_goal_grace_seconds: 3.0
+    # When the committed frontier ID disappears (split/merge in segmentation), continue to
+    # the nearest viewpoint within this distance [m] instead of replanning. 0 disables.
+    committed_goal_reassociation_distance: 1.0
     enable_utility_preemption: false
     minimum_goal_commit_seconds: 5.0
     switch_utility_margin: 0.25

@@ -1,6 +1,7 @@
 
 #include <ego_planner/ego_replan_fsm.h>
 #include <cmath>
+#include <limits>
 
 namespace ego_planner
 {
@@ -25,7 +26,8 @@ namespace ego_planner
     node_->declare_parameter("fsm/fail_safe", true);
     node_->declare_parameter("fsm/goal_height_above_ground", 2.0);
     node_->declare_parameter("fsm/goal_min_height_above_ground", 0.5);
-    node_->declare_parameter("fsm/goal_vertical_search_range", 2.0);
+    node_->declare_parameter("fsm/goal_search_radius", 2.0);
+    node_->declare_parameter("fsm/goal_search_drone_weight", 0.5);
     node_->declare_parameter("fsm/use_goal_z", true);
 
     node_->get_parameter("fsm/flight_type", target_type_);
@@ -38,7 +40,16 @@ namespace ego_planner
     node_->get_parameter("fsm/fail_safe", enable_fail_safe_);
     node_->get_parameter("fsm/goal_height_above_ground", goal_height_above_ground_);
     node_->get_parameter("fsm/goal_min_height_above_ground", goal_min_height_above_ground_);
-    node_->get_parameter("fsm/goal_vertical_search_range", goal_vertical_search_range_);
+    node_->get_parameter("fsm/goal_search_radius", goal_search_radius_);
+    node_->get_parameter("fsm/goal_search_drone_weight", goal_search_drone_weight_);
+    if (goal_search_drone_weight_ < 0.0 || goal_search_drone_weight_ >= 1.0)
+    {
+      // At w >= 1 every point between goal and drone costs the same, so "nearest" is lost.
+      const double w = std::clamp(goal_search_drone_weight_, 0.0, 0.95);
+      RCLCPP_WARN(node_->get_logger(), "fsm/goal_search_drone_weight=%.2f must be in [0, 1); using %.2f",
+                  goal_search_drone_weight_, w);
+      goal_search_drone_weight_ = w;
+    }
     node_->get_parameter("fsm/use_goal_z", use_goal_z_);
 
     have_trigger_ = !flag_realworld_experiment_;
@@ -195,7 +206,7 @@ namespace ego_planner
   bool EGOReplanFSM::planNextWaypoint(const Eigen::Vector3d next_wp, bool is_goal_adjustment)
   {
     if (!is_goal_adjustment)
-      goal_height_adjustment_attempted_ = false;
+      goal_adjustment_attempted_ = false;
 
     bool success = false;
     success = planner_manager_->planGlobalTraj(odom_pos_, odom_vel_, Eigen::Vector3d::Zero(), next_wp, Eigen::Vector3d::Zero(), Eigen::Vector3d::Zero());
@@ -250,14 +261,9 @@ namespace ego_planner
     if (use_goal_z_)
     {
       // Use the requested height (e.g. from DSP), kept inside the band ego-planner can fly in.
-      // If that voxel is occupied, checkCollisionCallback() still searches vertically for a free one.
-      Eigen::Vector3d map_origin, map_size;
-      map->getRegion(map_origin, map_size);
-      const double min_z = map->getGroundHeight() + goal_min_height_above_ground_;
-      const double top_z = map->getVirtualCeilHeight() > map->getGroundHeight()
-                               ? map->getVirtualCeilHeight()
-                               : map_origin.z() + map_size.z();
-      const double max_z = std::max(min_z, top_z - map->getResolution());
+      // If that voxel is occupied, checkCollisionCallback() moves the goal to a nearby free one.
+      double min_z, max_z;
+      flyableGoalBand(min_z, max_z);
       goal_z = std::clamp(msg->pose.position.z, min_z, max_z);
       if (goal_z != msg->pose.position.z)
       {
@@ -801,52 +807,50 @@ odom_vel_ = q * vel_body;
     LocalTrajData *info = &planner_manager_->local_data_;
     auto map = planner_manager_->grid_map_;
 
-    // Keep manual goals at the configured height above ground. If an obstacle
-    // occupies that voxel, search vertically for the nearest free voxel.
-    if (have_target_ && !goal_height_adjustment_attempted_ &&
+    // If the goal voxel is occupied (inflated map), move the goal to the free voxel within
+    // goal_search_radius_ that minimises |c - goal| + w * |c - drone|. w > 0 prefers the
+    // drone's side of the obstacle. Done once per goal so it cannot jump around as the map updates.
+    if (have_target_ && !goal_adjustment_attempted_ &&
         map->isInMap(end_pt_) && map->getInflateOccupancy(end_pt_))
     {
-      goal_height_adjustment_attempted_ = true;
-      const double resolution = map->getResolution();
-      const double min_goal_z = map->getGroundHeight() + goal_min_height_above_ground_;
-      const double max_goal_z = map->getVirtualCeilHeight() > map->getGroundHeight()
-                                    ? map->getVirtualCeilHeight()
-                                    : map->getGroundHeight() + goal_height_above_ground_ + goal_vertical_search_range_;
-      const int search_steps = static_cast<int>(std::ceil(goal_vertical_search_range_ / resolution));
-      bool found_free_goal = false;
+      goal_adjustment_attempted_ = true;
+      const double res = map->getResolution();
+      double min_z, max_z;
+      flyableGoalBand(min_z, max_z);
+      const int n = static_cast<int>(std::ceil(goal_search_radius_ / res));
+      const Eigen::Vector3d goal = end_pt_;
+      double best_cost = std::numeric_limits<double>::infinity();
+      Eigen::Vector3d best_goal = goal;
 
-      for (int step = 1; step <= search_steps && !found_free_goal; ++step)
-      {
-        const double offset = step * resolution;
-        const double candidate_heights[] = {end_pt_.z() + offset, end_pt_.z() - offset};
-        for (double candidate_z : candidate_heights)
-        {
-          if (candidate_z < min_goal_z || candidate_z >= max_goal_z)
-            continue;
-
-          Eigen::Vector3d candidate_goal(end_pt_.x(), end_pt_.y(), candidate_z);
-          if (!map->isInMap(candidate_goal) || map->getInflateOccupancy(candidate_goal))
-            continue;
-
-          planNextWaypoint(candidate_goal, true);
-          if ((end_pt_ - candidate_goal).norm() < 1e-6)
+      for (int i = -n; i <= n; ++i)
+        for (int j = -n; j <= n; ++j)
+          for (int k = -n; k <= n; ++k)
           {
-            RCLCPP_WARN(node_->get_logger(),
-                        "Goal voxel is occupied; moved goal to free height z=%.2f.", candidate_z);
-            found_free_goal = true;
-            break;
+            const Eigen::Vector3d c = goal + res * Eigen::Vector3d(i, j, k);
+            const double dist = (c - goal).norm();
+            if (dist > goal_search_radius_ || c.z() < min_z || c.z() > max_z ||
+                !map->isInMap(c) || map->getInflateOccupancy(c))
+              continue;
+            const double cost = dist + goal_search_drone_weight_ * (c - odom_pos_).norm();
+            if (cost < best_cost)
+            {
+              best_cost = cost;
+              best_goal = c;
+            }
           }
-        }
-      }
 
-      if (found_free_goal)
-        return;
-      else
+      if (std::isfinite(best_cost) && planNextWaypoint(best_goal, true))
       {
         RCLCPP_WARN(node_->get_logger(),
-                    "Goal voxel is occupied and no free height was found within %.1f m; keeping the goal.",
-                    goal_vertical_search_range_);
+                    "Goal (%.2f, %.2f, %.2f) is occupied; moved it %.2f m to free (%.2f, %.2f, %.2f).",
+                    goal.x(), goal.y(), goal.z(), (best_goal - goal).norm(),
+                    best_goal.x(), best_goal.y(), best_goal.z());
+        return;
       }
+      if (!std::isfinite(best_cost))
+        RCLCPP_WARN(node_->get_logger(),
+                    "Goal voxel is occupied and no free voxel was found within %.1f m; keeping the goal.",
+                    goal_search_radius_);
     }
     
     if (exec_state_ == WAIT_TARGET || info->start_time_.seconds() < 1e-5)
@@ -1040,6 +1044,20 @@ odom_vel_ = q * vel_body;
   {
     if (ends_at_goal && have_end_yaw_)
       bspline.yaw_pts.push_back(end_yaw_);
+  }
+
+  // Heights a goal may have: from goal_min_height_above_ground_ up to one voxel below the
+  // virtual ceiling (or the map top if there is no ceiling).
+  void EGOReplanFSM::flyableGoalBand(double &min_z, double &max_z) const
+  {
+    auto map = planner_manager_->grid_map_;
+    Eigen::Vector3d map_origin, map_size;
+    map->getRegion(map_origin, map_size);
+    min_z = map->getGroundHeight() + goal_min_height_above_ground_;
+    const double top_z = map->getVirtualCeilHeight() > map->getGroundHeight()
+                             ? map->getVirtualCeilHeight()
+                             : map_origin.z() + map_size.z();
+    max_z = std::max(min_z, top_z - map->getResolution());
   }
 
   bool EGOReplanFSM::callEmergencyStop(Eigen::Vector3d stop_pos, bool hold_goal_yaw)

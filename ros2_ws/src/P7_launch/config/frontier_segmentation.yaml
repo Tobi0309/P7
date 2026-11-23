@@ -1,6 +1,7 @@
-frontier_segmentation:
+# Keyed /** so it applies whatever name the launch file gives the node.
+/**:
   ros__parameters:
-    octomap_topic: /octomap_binary # or /octomap_full
+    octomap_topic: /octomap_binary_filtered # or /octomap_full
     sensor_model: livox_mid360       # or: camera
     sensor_frame: livox_frame       # change to your actual LiDAR optical/sensor frame
     world_frame: camera_init         # camera_init: FAST-LIO world/parent frame

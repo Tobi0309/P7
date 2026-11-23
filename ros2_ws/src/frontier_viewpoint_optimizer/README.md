@@ -41,6 +41,7 @@ Requires `ros2top` and `nlohmann_json` unconditionally; **no** `FVO_WITH_ROS2TOP
 ## Physical assumptions and limitations
 
 - The entire rotating/tilting UAV collision envelope **must fit inside a 0.5 m voxel** for the coarse BFS assumption to be collision-safe; check this before real flight.
+- Voxel padding (`obstacle_padding_enabled`, `obstacle_padding`) rejects candidate viewpoints whose voxel centre is closer than the padding to an occupied voxel, and invalidates cached viewpoints that end up inside it. It uses DSP's padding rule; keep both values equal to DSP's, otherwise DSP treats the viewpoints as blocked.
 - The FOV model assumes yaw-level LiDAR unless transforms are incorporated; it does not model roll/pitch changes.
 - A bounded BFS can report zero reachable candidate centers because the frontier is outside its configured 25 m radius. If that is a concern, increase `reachability_max_distance` or let DSP handle long-distance route verification, but do not conflate local BFS with global reachability.
 - Spatial deltas are computed from the decoded full OctoMap; this adds CPU and RAM per map update but runs asynchronously. If your Octomap is rolling or resets unexpectedly, dropped segment IDs should be diagnosed upstream.

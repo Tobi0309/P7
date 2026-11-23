@@ -69,11 +69,11 @@ def generate_launch_description():
     )
 
     goal_converter_dsp = Node(
-	package='P7_helper',
-	executable='goal_converter_dsp',
-	name='goal_converter_dsp',
-	output='screen',
-	parameters=[{'use_sim_time': True}],
+        package='P7_helper',
+        executable='goal_converter_dsp',
+        name='goal_converter_dsp',
+        output='screen',
+        parameters=[{'use_sim_time': True}],
     )
 
     pos_cmd_to_px4 = Node(

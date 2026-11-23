@@ -26,6 +26,7 @@
 #include <octomap_msgs/msg/octomap.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/point.hpp>
+#include <geometry_msgs/msg/transform_stamped.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 #include <std_msgs/msg/color_rgba.hpp>
 #include <std_msgs/msg/string.hpp>
@@ -218,23 +219,49 @@ private:
     }
 
     const double res = tree->getResolution();
-    Eigen::Vector3d robot_origin(0.0, 0.0, 0.0);
+    // The robot position only filters new frontier voxels by sensor range, so the latest
+    // transform is good enough when none exists at the map's stamp.
+    geometry_msgs::msg::TransformStamped tf;
+    bool have_tf = false;
+    std::string tf_error;
     try
     {
-      const auto tf = tf_buffer_->lookupTransform(
-          world_frame_, robot_frame_, msg->header.stamp,
-          rclcpp::Duration::from_seconds(0.1));
-      robot_origin = Eigen::Vector3d(tf.transform.translation.x,
-                                     tf.transform.translation.y,
-                                     tf.transform.translation.z);
+      tf = tf_buffer_->lookupTransform(world_frame_, robot_frame_, msg->header.stamp,
+                                       rclcpp::Duration::from_seconds(0.1));
+      have_tf = true;
     }
     catch (const tf2::TransformException &e)
     {
-      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
-                           "Cannot transform robot frame '%s' into world frame '%s'. Skipping map: %s",
-                           robot_frame_.c_str(), world_frame_.c_str(), e.what());
+      tf_error = e.what();
+    }
+    if (!have_tf)
+    {
+      try
+      {
+        tf = tf_buffer_->lookupTransform(world_frame_, robot_frame_, tf2::TimePointZero);
+        have_tf = true;
+      }
+      catch (const tf2::TransformException &e)
+      {
+        tf_error = e.what();
+      }
+    }
+    if (!have_tf)
+    {
+      // The first (latched) map usually arrives before the TF listener has received anything.
+      if (std::chrono::steady_clock::now() - start_time_ < std::chrono::seconds(5))
+        RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 2000,
+                             "Waiting for TF '%s' -> '%s' before segmenting maps",
+                             world_frame_.c_str(), robot_frame_.c_str());
+      else
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+                             "Cannot transform robot frame '%s' into world frame '%s'. Skipping map: %s",
+                             robot_frame_.c_str(), world_frame_.c_str(), tf_error.c_str());
       return;
     }
+    const Eigen::Vector3d robot_origin(tf.transform.translation.x,
+                                       tf.transform.translation.y,
+                                       tf.transform.translation.z);
 
     // Expand the OctoMap into a consistent native-resolution voxel snapshot.
     std::unordered_map<int64_t, Voxel> current_voxels;
@@ -905,6 +932,7 @@ private:
   double min_range_, max_range_, camera_hfov_, camera_vfov_, lidar_hfov_, lidar_vfov_, lidar_axis_pitch_, design_range_;
   int min_frontier_voxels_, max_frontier_voxels_;
   bool use_fov_extent_limits_, positive_z_is_up_, diagnostics_;
+  const std::chrono::steady_clock::time_point start_time_ = std::chrono::steady_clock::now();
   bool have_previous_octomap_ = false;
   double previous_resolution_ = 0.0;
   std::unordered_map<int64_t, Voxel> previous_voxels_;

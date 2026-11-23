@@ -3,7 +3,7 @@ project(dsp)
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Modules)
 
 if(NOT CMAKE_CXX_STANDARD)
-  set(CMAKE_CXX_STANDARD 14)
+  set(CMAKE_CXX_STANDARD 17)
 endif()
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
@@ -39,14 +39,14 @@ link_libraries(${OCTOMAP_LIBRARIES})
 
 add_executable(dsp src/dsp.cpp)
 
-ament_target_dependencies(dsp 
-    rclcpp 
-    dsp_interfaces 
-    visualization_msgs 
+ament_target_dependencies(dsp
+    rclcpp
+    dsp_interfaces
+    visualization_msgs
     std_srvs
-    octomap 
-    octomap_msgs 
-    Eigen3 
+    octomap
+    octomap_msgs
+    Eigen3
     DSL
     tf2
     tf2_ros
@@ -63,9 +63,17 @@ install(TARGETS
     DESTINATION lib/${PROJECT_NAME})
 
 install(
-    DIRECTORY launch
+    DIRECTORY config launch
     maps
     DESTINATION share/${PROJECT_NAME})
 
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  # Lazy DSL search (DspGridSearch) and the voxel helpers used by the planner.
+  ament_add_gtest(test_dsp_search test/test_dsp_search.cpp)
+  if(TARGET test_dsp_search)
+    ament_target_dependencies(test_dsp_search Eigen3 DSL)
+  endif()
+endif()
 
 ament_package()
