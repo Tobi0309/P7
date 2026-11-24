@@ -204,6 +204,18 @@ namespace ego_planner
           point_set.push_back(local_target_pt);
         } while (point_set.size() < 7); // If the start point is very close to end point, this will help
 
+        // Close to the target the points were squeezed together to get at least 7 of them. Squeeze
+        // the time step too: with the old ts every replan would stretch the remaining distance over
+        // at least 6 * ts (7.2 s at 0.5 m/s), so the drone crept towards each goal. Never below what
+        // max_acc needs for the remaining distance; checkFeasibility() still lengthens it if needed.
+        if (cps_dist < pp_.ctrl_pt_dist && point_set.size() > 1)
+        {
+          const double remaining = pseudo_arc_length.back();
+          const double min_time = 2.0 * sqrt(std::max(remaining, 0.0) / pp_.max_acc_);
+          const double ts_squeezed = std::max(ts * cps_dist / pp_.ctrl_pt_dist, min_time / (point_set.size() - 1));
+          ts = std::min(ts, ts_squeezed);
+        }
+
         start_end_derivatives.push_back(local_data_.velocity_traj_.evaluateDeBoorT(t_cur));
         start_end_derivatives.push_back(local_target_vel);
         start_end_derivatives.push_back(local_data_.acceleration_traj_.evaluateDeBoorT(t_cur));
@@ -364,7 +376,8 @@ namespace ego_planner
   bool EGOPlannerManager::checkCollision(int drone_id)
   {
     // if (local_data_.start_time_.toSec() < 1e9) // It means my first planning has not started
-    if (local_data_.start_time_.seconds() < 1e9)
+    // 0 rather than < 1e9: sim time never reaches 1e9 s, which disabled this check in simulation.
+    if (local_data_.start_time_.nanoseconds() == 0)
       return false;
 
     // double my_traj_start_time = local_data_.start_time_.toSec();

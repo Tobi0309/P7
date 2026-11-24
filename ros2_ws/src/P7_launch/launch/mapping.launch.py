@@ -5,7 +5,7 @@ from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import Node
+from launch_ros.actions import Node, SetParameter
 
 from ament_index_python.packages import get_package_share_directory
 import os
@@ -16,6 +16,15 @@ def generate_launch_description():
         default_value='true',
         description='Launch the robot description and static transforms.',
     )
+
+    # Every node below (also in included launch files) follows /clock when
+    # use_sim_time is true, otherwise wall time.
+    use_sim_time_argument = DeclareLaunchArgument(
+        'use_sim_time',
+        default_value='false',
+        description='Use /clock (simulation or rosbag --clock) instead of wall time.',
+    )
+    set_use_sim_time = SetParameter(name='use_sim_time', value=LaunchConfiguration('use_sim_time'))
 
     robot_description = IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
@@ -38,7 +47,12 @@ def generate_launch_description():
                 'mapping.launch.py'
             )
         ),
-        launch_arguments={'rviz': 'false'}.items()
+        launch_arguments={
+            'rviz': 'false',
+            'use_sim_time': LaunchConfiguration('use_sim_time'),
+            # The simulated drone drops and bounces at start-up.
+            'wait_for_still': LaunchConfiguration('use_sim_time'),
+        }.items()
     )
 
     octomap_node = Node(
@@ -70,6 +84,14 @@ def generate_launch_description():
             ],
 
         )
+
+    # Keeps only LiDAR points inside the camera image; feeds octomap_node_fov_filtered.
+    pointcloud_fov_filter = Node(
+        package='P7_mapping',
+        executable='pointcloud_fov_filter',
+        name='pointcloud_fov_filter',
+        output='screen',
+    )
 
     octomap_node_fov_filtered = Node(
             package='octomap_server',
@@ -105,7 +127,6 @@ def generate_launch_description():
         executable='imu_propagation',
         name='imu_propagation',
         output='screen',
-        parameters=[{'use_sim_time': True}],
     )
 
     odometry_transformer = Node(
@@ -113,14 +134,16 @@ def generate_launch_description():
     	executable='odometry_transformer',
     	name='odometry_transformer',
     	output='screen',
-    	parameters=[{'use_sim_time': True}],
     )
 
     return LaunchDescription([
         publish_robot_description,
+        use_sim_time_argument,
+        set_use_sim_time,
         fastlio,
         robot_description,
         octomap_node,
+        pointcloud_fov_filter,
         octomap_node_fov_filtered,
         imu_propagation,
         odometry_transformer,

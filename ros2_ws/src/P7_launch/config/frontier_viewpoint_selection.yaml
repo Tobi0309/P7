@@ -1,7 +1,7 @@
-frontier_viewpoint_selection_node:
+frontier_viewpoint_selection:
   ros__parameters:
     optimized_topic: /frontier_viewpoints
-    odometry_topic: /Odometry
+    odometry_topic: /Odometry_base_link
     dsp_cost_service: /dsp/path_cost
     planning_failure_service: /dsp/planning_failure
     finish_service: /frontier_viewpoint_selection/finish

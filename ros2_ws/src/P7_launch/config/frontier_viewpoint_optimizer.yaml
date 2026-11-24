@@ -1,20 +1,21 @@
-frontier_viewpoint_optimizer_node:
+frontier_viewpoint_optimizer:
   ros__parameters:
     # Input messages must be in the same frame; map must have native 0.5 m resolution.
     frontier_topic: /frontier_segments
-    octomap_topic: /octomap_binary
-    odometry_topic: /Odometry
+    octomap_topic: /octomap_binary_filtered
+    odometry_topic: /Odometry_base_link
     optimized_topic: /frontier_viewpoints
     fov_marker_topic: /frontier_viewpoints/fov_markers
     planning_voxel_size: 0.5
 
-    # Real sensor convention: level LiDAR model, yaw-only frame unless transformed upstream.
-    horizontal_fov_deg: 360.0
-    vertical_fov_min_deg: -88.5
-    vertical_fov_max_deg: 46.5
-    min_range: 0.2
-    max_range: 40.0
-    sensor_offset_x: 0.0
+    # Camera coverage model: forward RGB camera (1280x720, ~90.5 x 59 deg, level, 0.13 m in front
+    # of base_link), up to the coverage map's 10 m ray length.
+    horizontal_fov_deg: 90.5
+    vertical_fov_min_deg: -29.5
+    vertical_fov_max_deg: 29.5
+    min_range: 0.3
+    max_range: 10.0
+    sensor_offset_x: 0.13
     sensor_offset_y: 0.0
     sensor_offset_z: 0.0
 

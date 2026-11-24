@@ -77,12 +77,12 @@ Dsp::Dsp() : Node("dsp")
 
     const double plan_rate = this->get_parameter("plan_rate").as_double();
     if(plan_rate > 0.0)
-        path_update_timer = this->create_wall_timer(std::chrono::duration<double>(1.0 / plan_rate),
+        path_update_timer = rclcpp::create_timer(this, this->get_clock(), rclcpp::Duration::from_seconds(1.0 / plan_rate),
             std::bind(&Dsp::pathUpdateCallback, this));
 
     const double goal_publish_rate = this->get_parameter("goal_publish_rate").as_double();
     if(goal_publish_rate > 0.0)
-        goal_publish_timer = this->create_wall_timer(std::chrono::duration<double>(1.0 / goal_publish_rate),
+        goal_publish_timer = rclcpp::create_timer(this, this->get_clock(), rclcpp::Duration::from_seconds(1.0 / goal_publish_rate),
             std::bind(&Dsp::goalPublishCallback, this));
 
     cost_srv_ = this->create_service<dsp_interfaces::srv::PathCost>("/dsp/path_cost",

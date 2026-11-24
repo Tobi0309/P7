@@ -1,6 +1,6 @@
 frontier_segmentation:
   ros__parameters:
-    octomap_topic: /octomap_binary # or /octomap_full
+    octomap_topic: /octomap_binary_filtered # or /octomap_full_filtered
     sensor_model: livox_mid360       # or: camera
     sensor_frame: livox_frame       # change to your actual LiDAR optical/sensor frame
     world_frame: camera_init         # camera_init: FAST-LIO world/parent frame
@@ -15,7 +15,8 @@ frontier_segmentation:
     max_elongation_ratio: 4.0
     min_convexity_ratio: 0.45
     min_range_m: 0.2
-    max_range_m: 40.0
+    # octomap_server rays end at 10 m; leave margin for voxel size and drone motion.
+    max_range_m: 12.0
     camera_hfov_deg: 90.0
     camera_vfov_deg: 64.0
     lidar_hfov_deg: 360.0

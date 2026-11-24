@@ -15,12 +15,17 @@ EMITTER_ELEVATIONS_DEG = [
     6.274,
 ]
 
-SCAN_RATE_HZ = 10
+# Used until two scans have arrived, and if the measured period is implausible.
+DEFAULT_SCAN_PERIOD_NS = 50_000_000  # the Isaac LiDAR publishes at 20 Hz
+MAX_SCAN_PERIOD_NS = 200_000_000
 
 
 class IsaacToLivox(Node):
     def __init__(self):
         super().__init__("isaac_to_livox")
+
+        self.last_stamp_ns = None
+        self.scan_period_ns = DEFAULT_SCAN_PERIOD_NS
 
         self.publisher = self.create_publisher(
             CustomMsg,
@@ -54,12 +59,26 @@ class IsaacToLivox(Node):
         )
 
     def pointcloud_callback(self, message: PointCloud2):
-        output = CustomMsg()
-        output.header = message.header
-        output.timebase = (
+        # Isaac stamps the scan at its end; FAST-LIO expects the start, with
+        # per-point offsets covering one scan period.
+        stamp_ns = (
             message.header.stamp.sec * 1_000_000_000
             + message.header.stamp.nanosec
         )
+        if self.last_stamp_ns is not None:
+            period_ns = stamp_ns - self.last_stamp_ns
+            if period_ns == 0:
+                return  # duplicate scan
+            if 0 < period_ns <= MAX_SCAN_PERIOD_NS:
+                self.scan_period_ns = period_ns
+        self.last_stamp_ns = stamp_ns
+        start_ns = max(0, stamp_ns - self.scan_period_ns)
+
+        output = CustomMsg()
+        output.header = message.header
+        output.header.stamp.sec = start_ns // 1_000_000_000
+        output.header.stamp.nanosec = start_ns % 1_000_000_000
+        output.timebase = start_ns
         output.lidar_id = 0
         output.rsvd = [0, 0, 0]
 
@@ -105,16 +124,15 @@ class IsaacToLivox(Node):
 
         self.publisher.publish(output)
 
-    @staticmethod
     def calculate_offset_time(
+        self,
         point_index: int,
         point_count: int,
     ) -> int:
         if point_count <= 1:
             return 0
 
-        scan_period_ns = 1_000_000_000 // SCAN_RATE_HZ
-        return int(point_index * scan_period_ns / (point_count - 1))
+        return int(point_index * self.scan_period_ns / (point_count - 1))
 
 
 def main():

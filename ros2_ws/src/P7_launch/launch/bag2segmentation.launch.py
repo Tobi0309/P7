@@ -11,7 +11,7 @@ from launch.actions import (
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import Node
+from launch_ros.actions import Node, SetParameter
 
 
 def generate_launch_description():
@@ -130,7 +130,7 @@ def generate_launch_description():
     )
 
     rosbag = ExecuteProcess(
-        cmd=['ros2', 'bag', 'play', LaunchConfiguration('bag')],
+        cmd=['ros2', 'bag', 'play', LaunchConfiguration('bag'), '--clock'],
         output='screen',
     )
 
@@ -139,6 +139,7 @@ def generate_launch_description():
             bag_argument,
             rviz_config_argument,
             use_sim_time_argument,
+            SetParameter(name='use_sim_time', value=LaunchConfiguration('use_sim_time')),
             fastlio,
             world_to_camera_init,
             camera_init_to_world_old,

@@ -1,2 +1,4 @@
-{
-}
+{ "transport": { "link": { "tx": { "queue": {
+  "size": { "control": 16, "real_time": 16, "interactive_high": 16, "interactive_low": 16,
+            "data_high": 16, "data": 16, "data_low": 16, "background": 16 },
+  "congestion_control": { "drop": { "wait_before_drop": 20000 } } } } } } }

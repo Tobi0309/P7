@@ -1,11 +1,22 @@
 import os
 
 from launch import LaunchDescription
-from launch_ros.actions import Node
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
+from launch_ros.actions import Node, SetParameter
 from ament_index_python.packages import get_package_share_directory
 
 
 def generate_launch_description():
+    # Every node below (also in included launch files) follows /clock when
+    # use_sim_time is true, otherwise wall time.
+    use_sim_time_argument = DeclareLaunchArgument(
+        'use_sim_time',
+        default_value='false',
+        description='Use /clock (simulation or rosbag --clock) instead of wall time.',
+    )
+    set_use_sim_time = SetParameter(name='use_sim_time', value=LaunchConfiguration('use_sim_time'))
+
     pkg_path = get_package_share_directory(
         "P7_launch"
     )
@@ -53,6 +64,8 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
+        use_sim_time_argument,
+        set_use_sim_time,
         camera_init_to_world_old,
         world_to_camera_init,
         robot_state_publisher

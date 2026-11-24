@@ -11,7 +11,7 @@ from launch.actions import (
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import Node
+from launch_ros.actions import Node, SetParameter
 
 
 def generate_launch_description():
@@ -75,6 +75,7 @@ def generate_launch_description():
     return LaunchDescription(
         [
             use_sim_time_argument,
+            SetParameter(name='use_sim_time', value=LaunchConfiguration('use_sim_time')),
             rviz_config_argument,
             rviz,
             frontier_segmentation,

@@ -4,7 +4,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import Node
+from launch_ros.actions import Node, SetParameter
 from launch.conditions import IfCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 
@@ -70,6 +70,7 @@ def generate_launch_description():
         publish_robot_description,
         declare_rviz_config,
         declare_use_sim_time,
+        SetParameter(name='use_sim_time', value=use_sim_time),
         robot_description,
         rviz,
     ])

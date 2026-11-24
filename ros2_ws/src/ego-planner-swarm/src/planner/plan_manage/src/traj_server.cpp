@@ -81,6 +81,11 @@ void bsplineCallback(traj_utils::msg::Bspline::ConstPtr msg,rclcpp::Clock::Share
 
 std::pair<double, double> calculate_yaw(double t_cur, Eigen::Vector3d &pos, rclcpp::Time &time_now, rclcpp::Time &time_last)
 {
+  // /clock may not have advanced since the last call (and dt is 0 on the first call). Dividing
+  // by that dt gives NaN, which the yaw-rate filter below would then keep forever.
+  if ((time_now - time_last).seconds() <= 1e-6)
+    return {last_yaw_, last_yaw_dot_};
+
   constexpr double PI = 3.1415926;
   constexpr double YAW_DOT_MAX_PER_SEC = PI;
   // constexpr double YAW_DOT_DOT_MAX_PER_SEC = PI;
@@ -205,10 +210,17 @@ void cmdCallback(rclcpp::Clock::SharedPtr clock)
   rclcpp::Time time_now = clock->now();
   double t_cur = (time_now - start_time_).seconds();
 
+  // The planner is a separate process, so its /clock can be a tick ahead of ours: a new
+  // trajectory may start slightly in our future. Begin at its start point.
+  constexpr double CLOCK_SKEW_TOLERANCE = 0.1; // s
+  if (t_cur < 0.0 && t_cur > -CLOCK_SKEW_TOLERANCE)
+    t_cur = 0.0;
+
   Eigen::Vector3d pos(Eigen::Vector3d::Zero()), vel(Eigen::Vector3d::Zero()), acc(Eigen::Vector3d::Zero()), pos_f;
   std::pair<double, double> yaw_yawdot(0, 0);
 
-  static rclcpp::Time time_last = clock->now();
+  static rclcpp::Time time_last = time_now;
+  static bool has_cmd = false;
   if (t_cur < traj_duration_ && t_cur >= 0.0)
   {
     pos = traj_[0].evaluateDeBoorT(t_cur);
@@ -244,7 +256,15 @@ void cmdCallback(rclcpp::Clock::SharedPtr clock)
   }
   else
   {
-    cout << "[Traj server]: invalid time." << endl;
+    // Clock went backwards (sim reset) or is not the planner's clock. Hold the last commanded
+    // position instead of commanding the origin.
+    RCLCPP_WARN_THROTTLE(rclcpp::get_logger("traj_server"), *clock, 1000,
+                         "Trajectory starts %.2f s in the future (clock reset or mismatch?)", -t_cur);
+    time_last = time_now;
+    if (!has_cmd)
+      return;
+    pos << cmd.position.x, cmd.position.y, cmd.position.z;
+    yaw_yawdot = {last_yaw_, 0.0};
   }
   time_last = time_now;
 
@@ -271,6 +291,7 @@ void cmdCallback(rclcpp::Clock::SharedPtr clock)
   cmd.yaw_dot = yaw_yawdot.second;
 
   pos_cmd_pub->publish(cmd);
+  has_cmd = true;
 }
 
 int main(int argc, char **argv)
@@ -291,8 +312,9 @@ int main(int argc, char **argv)
       "/position_cmd",
       50);
 
-  auto cmd_timer = node->create_wall_timer(
-    std::chrono::milliseconds(10),
+  // Node clock: follows /clock with use_sim_time, system time otherwise.
+  auto cmd_timer = rclcpp::create_timer(
+    node, node->get_clock(), rclcpp::Duration(std::chrono::milliseconds(10)),
     [clock = node->get_clock()]() {
       cmdCallback(clock);
     });

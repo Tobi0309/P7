@@ -1,5 +1,5 @@
 from pathlib import Path
-from launch_ros.actions import Node
+from launch_ros.actions import Node, SetParameter
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -18,6 +18,15 @@ def generate_launch_description():
         default_value=str(default_bag_path),
         description='Path to the ROS 2 bag to play',
     )
+    # Every node below (also in included launch files) follows /clock when
+    # use_sim_time is true, otherwise wall time.
+    use_sim_time_argument = DeclareLaunchArgument(
+        'use_sim_time',
+        default_value='true',
+        description='Use /clock (simulation or rosbag --clock) instead of wall time.',
+    )
+    set_use_sim_time = SetParameter(name='use_sim_time', value=LaunchConfiguration('use_sim_time'))
+
     declare_rviz_config = DeclareLaunchArgument(
         'rviz_config',
         default_value=str(package_share / 'rviz' / 'fastlio.rviz'),
@@ -34,7 +43,7 @@ def generate_launch_description():
         ),
         launch_arguments={
             'rviz_config': LaunchConfiguration('rviz_config'),
-            'use_sim_time': 'true',
+            'use_sim_time': LaunchConfiguration('use_sim_time'),
         }.items(),
     )
 
@@ -48,7 +57,7 @@ def generate_launch_description():
         ),
         launch_arguments={
             'rviz': 'false',
-            'use_sim_time': 'true',
+            'use_sim_time': LaunchConfiguration('use_sim_time'),
         }.items()
     )
 
@@ -57,7 +66,6 @@ def generate_launch_description():
         executable='imu_propagation',
         name='imu_propagation',
         output='screen',
-        parameters=[{'use_sim_time': True}],
     )
 
     odometry_transformer = Node(
@@ -65,7 +73,6 @@ def generate_launch_description():
     	executable='odometry_transformer',
     	name='odometry_transformer',
     	output='screen',
-    	parameters=[{'use_sim_time': True}],
     )
 
     goal_converter_dsp = Node(
@@ -73,7 +80,6 @@ def generate_launch_description():
 	executable='goal_converter_dsp',
 	name='goal_converter_dsp',
 	output='screen',
-	parameters=[{'use_sim_time': True}],
     )
 
     pos_cmd_to_px4 = Node(
@@ -82,7 +88,6 @@ def generate_launch_description():
         name='pos_cmd_to_px4',
         output='screen',
         parameters=[{
-            'use_sim_time': True,
             'position_command_topic': '/drone_0_planning/pos_cmd',
             'goal_topic': '/move_base_simple/goal',
             'px4_odometry_topic': '/fmu/out/vehicle_odometry',
@@ -100,6 +105,8 @@ def generate_launch_description():
 
     return LaunchDescription([
         declare_bag_path,
+        use_sim_time_argument,
+        set_use_sim_time,
         declare_rviz_config,
         rviz,
         fastlio,

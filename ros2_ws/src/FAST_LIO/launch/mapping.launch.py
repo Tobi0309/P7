@@ -8,6 +8,7 @@ from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch.conditions import IfCondition
 
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 
 def generate_launch_description():
@@ -25,6 +26,10 @@ def generate_launch_description():
     declare_use_sim_time_cmd = DeclareLaunchArgument(
         'use_sim_time', default_value='false',
         description='Use simulation (Gazebo) clock if true'
+    )
+    declare_wait_for_still_cmd = DeclareLaunchArgument(
+        'wait_for_still', default_value='false',
+        description='Initialise gravity only once the IMU is still (simulation)'
     )
     declare_config_path_cmd = DeclareLaunchArgument(
         'config_path', default_value=default_config_path,
@@ -47,7 +52,9 @@ def generate_launch_description():
         package='fast_lio',
         executable='fastlio_mapping',
         parameters=[PathJoinSubstitution([config_path, config_file]),
-                    {'use_sim_time': use_sim_time}],
+                    {'use_sim_time': use_sim_time,
+                     'mapping.wait_for_still': ParameterValue(
+                         LaunchConfiguration('wait_for_still'), value_type=bool)}],
         output='screen'
     )
     rviz_node = Node(
@@ -62,6 +69,7 @@ def generate_launch_description():
 
     ld = LaunchDescription()
     ld.add_action(declare_use_sim_time_cmd)
+    ld.add_action(declare_wait_for_still_cmd)
     ld.add_action(declare_config_path_cmd)
     ld.add_action(declare_config_file_cmd)
     ld.add_action(declare_rviz_cmd)

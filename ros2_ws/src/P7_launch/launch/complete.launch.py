@@ -6,7 +6,7 @@ from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import Node
+from launch_ros.actions import Node, SetParameter
 
 
 def include(package, launch_file, **kwargs):
@@ -27,11 +27,21 @@ def generate_launch_description():
         description='Launch RViz (P7_launch rviz.launch.py)',
     )
 
-    mapping = include('P7_launch', 'mapping.launch.py')
-    ego_planner = include('ego_planner', 'advanced_param_live.launch.py')
-    dsp = include('dsp', 'dsp_launch.py')
-    rviz = include('P7_launch', 'rviz.launch.py', condition=IfCondition(launch_rviz))
-    px4_controller = include('P7_px4_fastlio_bridge', 'px4_fastlio_bridge.launch.py', launch_arguments={'use_sim_time': 'true'}.items())
+    # Every node below (also in included launch files) follows /clock when
+    # use_sim_time is true, otherwise wall time.
+    use_sim_time_argument = DeclareLaunchArgument(
+        'use_sim_time',
+        default_value='false',
+        description='Use /clock (simulation or rosbag --clock) instead of wall time.',
+    )
+    set_use_sim_time = SetParameter(name='use_sim_time', value=LaunchConfiguration('use_sim_time'))
+
+    sim_time = {'use_sim_time': LaunchConfiguration('use_sim_time')}.items()
+    mapping = include('P7_launch', 'mapping.launch.py', launch_arguments=sim_time)
+    ego_planner = include('ego_planner', 'advanced_param_live.launch.py', launch_arguments=sim_time)
+    dsp = include('dsp', 'dsp_launch.py')  # no use_sim_time argument; covered by SetParameter
+    rviz = include('P7_launch', 'rviz.launch.py', condition=IfCondition(launch_rviz), launch_arguments=sim_time)
+    px4_controller = include('P7_px4_fastlio_bridge', 'px4_fastlio_bridge.launch.py', launch_arguments=sim_time)
 
 
 
@@ -41,7 +51,6 @@ def generate_launch_description():
         name='pos_cmd_to_px4',
         output='screen',
         parameters=[{
-            'use_sim_time': True,
             'position_command_topic': '/drone_0_planning/pos_cmd',
             'px4_odometry_topic': '/fmu/out/vehicle_odometry',
         }],
@@ -54,13 +63,14 @@ def generate_launch_description():
         name='goal_converter_dsp',
         output='screen',
         parameters=[{
-            'use_sim_time': True,
             'goal_height': 2.0,
         }],
     )
     
     return LaunchDescription([
         declare_launch_rviz,
+        use_sim_time_argument,
+        set_use_sim_time,
         mapping,
         ego_planner,
         dsp,

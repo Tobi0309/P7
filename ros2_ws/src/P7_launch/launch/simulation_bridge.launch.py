@@ -4,12 +4,21 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import Node
+from launch_ros.actions import Node, SetParameter
 
 from ament_index_python.packages import get_package_share_directory
 import os
 
 def generate_launch_description():
+    # Every node below (also in included launch files) follows /clock when
+    # use_sim_time is true, otherwise wall time.
+    use_sim_time_argument = DeclareLaunchArgument(
+        'use_sim_time',
+        default_value='true',
+        description='Use /clock (simulation or rosbag --clock) instead of wall time.',
+    )
+    set_use_sim_time = SetParameter(name='use_sim_time', value=LaunchConfiguration('use_sim_time'))
+
     joy = Node(
             package='joy',
             executable='joy_node',
@@ -50,6 +59,8 @@ def generate_launch_description():
 
 
     return LaunchDescription([
+        use_sim_time_argument,
+        set_use_sim_time,
         #joy,
         #controller_mapper,
         color_compressor,

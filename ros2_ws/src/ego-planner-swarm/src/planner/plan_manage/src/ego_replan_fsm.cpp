@@ -68,11 +68,12 @@ namespace ego_planner
     planner_manager_->setDroneIdtoOpt();
 
     /* callback*/
-    exec_timer_ = node_->create_wall_timer(std::chrono::milliseconds(10),
-                                           std::bind(&EGOReplanFSM::execFSMCallback, this));
+    // Node clock: follows /clock with use_sim_time, system time otherwise.
+    exec_timer_ = rclcpp::create_timer(node_, node_->get_clock(), rclcpp::Duration(std::chrono::milliseconds(10)),
+                                       std::bind(&EGOReplanFSM::execFSMCallback, this));
 
-    safety_timer_ = node_->create_wall_timer(std::chrono::milliseconds(50),
-                                             std::bind(&EGOReplanFSM::checkCollisionCallback, this));
+    safety_timer_ = rclcpp::create_timer(node_, node_->get_clock(), rclcpp::Duration(std::chrono::milliseconds(50)),
+                                         std::bind(&EGOReplanFSM::checkCollisionCallback, this));
 
     odom_sub_ = node_->create_subscription<nav_msgs::msg::Odometry>(
         "odom_world",

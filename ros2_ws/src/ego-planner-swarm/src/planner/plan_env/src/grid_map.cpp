@@ -177,8 +177,9 @@ void GridMap::initMap(rclcpp::Node::SharedPtr node)
       "grid_map/odom", 10, std::bind(&GridMap::odomCallback, this, std::placeholders::_1));
 
   // 定时器
-  occ_timer_ = node_->create_wall_timer(
-      std::chrono::duration<double>(0.05),
+  // Node clock, like the depth/odom timeout it checks.
+  occ_timer_ = rclcpp::create_timer(
+      node_, node_->get_clock(), rclcpp::Duration::from_seconds(0.05),
       std::bind(&GridMap::updateOccupancyCallback, this));
 
   vis_timer_ = node_->create_wall_timer(

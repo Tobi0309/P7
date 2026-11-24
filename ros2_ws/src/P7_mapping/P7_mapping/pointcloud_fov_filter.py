@@ -88,6 +88,9 @@ class PointCloudFOVFilter(Node):
                 skip_nans=True))
         )
 
+        if coordinates.size == 0:
+            return  # empty cloud; hstack below would raise and kill the node
+
         coordinates_formatted = np.array(coordinates.tolist())
         
         transformed_coordinates = (self.camera_intrinsic @ self.camera_extrinsic @ np.hstack((coordinates_formatted, np.ones((coordinates_formatted.shape[0], 1)))).T).T

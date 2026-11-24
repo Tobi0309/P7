@@ -24,6 +24,7 @@
 /// *************Preconfiguration
 
 #define MAX_INI_COUNT (10)
+#define STILL_INI_COUNT (60)
 
 const bool time_list(PointType &x, PointType &y) {return (x.curvature < y.curvature);};
 
@@ -61,8 +62,12 @@ class ImuProcess
   V3D cov_bias_gyr;
   V3D cov_bias_acc;
   double first_lidar_time;
+  // Do not initialise gravity until the IMU has been still for STILL_INI_COUNT samples (simulation:
+  // the drone drops and bounces when physics starts). Off by default.
+  bool   wait_for_still = false;
 
  private:
+  bool isStill(const MeasureGroup &meas);
   void IMU_init(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 12, input_ikfom> &kf_state, int &N);
   void UndistortPcl(const MeasureGroup &meas, esekfom::esekf<state_ikfom, 12, input_ikfom> &kf_state, PointCloudXYZI &pcl_in_out);
 
@@ -83,6 +88,8 @@ class ImuProcess
   int    init_iter_num = 1;
   bool   b_first_frame_ = true;
   bool   imu_need_init_ = true;
+  V3D    still_ref_acc_ = Zero3d;
+  int    still_count_ = 0;
 };
 
 ImuProcess::ImuProcess()
@@ -353,6 +360,34 @@ void ImuProcess::UndistortPcl(const MeasureGroup &meas, esekfom::esekf<state_ikf
   }
 }
 
+// True once STILL_INI_COUNT consecutive IMU samples show no rotation, a constant acceleration
+// vector and a norm of 1 g (in g or m/s^2, so free fall does not count as still).
+bool ImuProcess::isStill(const MeasureGroup &meas)
+{
+  for (const auto &imu : meas.imu)
+  {
+    const auto &a = imu->linear_acceleration;
+    const auto &w = imu->angular_velocity;
+    const V3D acc(a.x, a.y, a.z);
+    const V3D gyr(w.x, w.y, w.z);
+    const double norm = acc.norm();
+    const bool one_g = std::abs(norm - 1.0) < 0.05 || std::abs(norm / G_m_s2 - 1.0) < 0.05;
+    if (!one_g || gyr.norm() > 0.05)
+    {
+      still_count_ = 0;
+      continue;
+    }
+    if (still_count_ == 0 || (acc - still_ref_acc_).norm() > 0.05 * norm)
+    {
+      still_ref_acc_ = acc;
+      still_count_ = 1;
+      continue;
+    }
+    still_count_ ++;
+  }
+  return still_count_ >= STILL_INI_COUNT;
+}
+
 void ImuProcess::Process(const MeasureGroup &meas,  esekfom::esekf<state_ikfom, 12, input_ikfom> &kf_state, PointCloudXYZI::Ptr cur_pcl_un_)
 {
   double t1,t2,t3;
@@ -363,6 +398,12 @@ void ImuProcess::Process(const MeasureGroup &meas,  esekfom::esekf<state_ikfom, 
 
   if (imu_need_init_)
   {
+    if (wait_for_still && !isStill(meas))
+    {
+      b_first_frame_ = true;  // discard what was averaged so far
+      return;
+    }
+
     /// The very first lidar frame
     IMU_init(meas, kf_state, init_iter_num);
 
