@@ -60,15 +60,21 @@ frontier_viewpoint_selection:
     # DSP sends failures by calling the service server at /dsp/planning_failure.
     # An active navigation goal enters REPLAN upon an acknowledged notification.
 
-    missing_goal_grace_seconds: 3.0
-    enable_utility_preemption: false
-    minimum_goal_commit_seconds: 5.0
-    switch_utility_margin: 0.25
-    switch_confirmation_cycles: 3
 
     navigation_no_progress_timeout_seconds: 50.0
     navigation_progress_increment: 0.5
+    navigation_yaw_progress_deg: 5.0   # turning this much at the goal counts as progress
+    # A goal is kept until this pose is held, or DSP fails, or there is no progress.
     arrival_position_tolerance: 0.5
+    arrival_yaw_tolerance_deg: 10.0
+    arrival_hold_seconds: 0.5
+
+    # After the dwell below, one full frontier/viewpoint batch is requested. Nothing is
+    # computed while navigating. All durations are in ROS time (/clock in simulation).
+    batch_request_topic: /frontier_navigation/batch_request
+    batch_timeout_seconds: 60.0
+    batch_retry_seconds: 3.0      # pause before a new batch if no goal could be selected
+    selection_timeout_seconds: 20.0
     observation_settle_seconds: 2.0
     visited_frontier_cooldown_seconds: 30.0
     enable_diagnostics: true

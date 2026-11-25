@@ -28,6 +28,7 @@
 #include <geometry_msgs/msg/point.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 #include <std_msgs/msg/color_rgba.hpp>
+#include <std_msgs/msg/u_int32.hpp>
 #include <std_msgs/msg/string.hpp>
 #include "frontier_segmentation/msg/frontier_array.hpp"
 #include "frontier_segmentation/msg/frontier.hpp"
@@ -129,6 +130,10 @@ public:
     viz_topic_ = declare_parameter<std::string>("marker_topic", "/frontier_segments/markers");
     frontier_topic_ = declare_parameter<std::string>("frontier_topic", "/frontier_segments");
     diagnostics_ = declare_parameter<bool>("diagnostics", false);
+    // On demand: maps are only stored; one segmentation runs per batch request (from the viewpoint
+    // selector). Off: every map is segmented.
+    on_demand_ = declare_parameter<bool>("on_demand", false);
+    const auto request_topic = declare_parameter<std::string>("batch_request_topic", "/frontier_navigation/batch_request");
 
     // Default ranges follow the selected sensor. Override explicitly if needed.
     if (min_range_ < 0.0)
@@ -140,7 +145,17 @@ public:
     tf_buffer_ = std::make_unique<tf2_ros::Buffer>(get_clock());
     tf_listener_ = std::make_shared<tf2_ros::TransformListener>(*tf_buffer_);
 
-    sub_ = create_subscription<octomap_msgs::msg::Octomap>(input_topic_, rclcpp::QoS(1).transient_local(), std::bind(&FrontierSegmentationNode::mapCallback, this, std::placeholders::_1));
+    sub_ = create_subscription<octomap_msgs::msg::Octomap>(input_topic_, rclcpp::QoS(1).transient_local(), std::bind(&FrontierSegmentationNode::mapReceived, this, std::placeholders::_1));
+    if (on_demand_)
+    {
+      request_sub_ = create_subscription<std_msgs::msg::UInt32>(
+          request_topic, rclcpp::QoS(1).reliable().transient_local(),
+          [this](std_msgs::msg::UInt32::ConstSharedPtr)
+          {
+            batch_requested_ = true;
+            runRequestedBatch();
+          });
+    }
     const auto output_qos = rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local();
     frontier_pub_ = create_publisher<frontier_segmentation::msg::FrontierArray>(frontier_topic_, output_qos);
     marker_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>(viz_topic_, output_qos);
@@ -200,21 +215,40 @@ private:
     }
   }
 
-  void mapCallback(const octomap_msgs::msg::Octomap::SharedPtr msg)
+  void mapReceived(const octomap_msgs::msg::Octomap::SharedPtr msg)
+  {
+    if (!on_demand_)
+    {
+      segmentMap(msg);
+      return;
+    }
+    latest_map_ = msg;
+    runRequestedBatch();
+  }
+
+  // Segments the newest map once per request. A request stays open until a map could be processed.
+  void runRequestedBatch()
+  {
+    if (batch_requested_ && latest_map_ && segmentMap(latest_map_))
+      batch_requested_ = false;
+  }
+
+  // Returns false if the map could not be processed.
+  bool segmentMap(const octomap_msgs::msg::Octomap::SharedPtr msg)
   {
     std::unique_ptr<octomap::AbstractOcTree> abstract_tree(octomap_msgs::msgToMap(*msg));
     auto *tree = dynamic_cast<octomap::OcTree *>(abstract_tree.get());
     if (!tree)
     {
       RCLCPP_ERROR(get_logger(), "Input Octomap is not an octomap::OcTree (id=%s)", msg->id.c_str());
-      return;
+      return false;
     }
     if (msg->header.frame_id != world_frame_)
     {
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
                            "OctoMap frame '%s' does not match configured world frame '%s'. Skipping map",
                            msg->header.frame_id.c_str(), world_frame_.c_str());
-      return;
+      return false;
     }
 
     const double res = tree->getResolution();
@@ -233,7 +267,7 @@ private:
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
                            "Cannot transform robot frame '%s' into world frame '%s'. Skipping map: %s",
                            robot_frame_.c_str(), world_frame_.c_str(), e.what());
-      return;
+      return false;
     }
 
     // Expand the OctoMap into a consistent native-resolution voxel snapshot.
@@ -302,7 +336,12 @@ private:
       previous_occupancy_ = std::move(current_occupancy);
       previous_resolution_ = res;
       have_previous_octomap_ = true;
-      return;
+      if (on_demand_)  // the requester still needs an answer
+      {
+        std::fill(published_segment_recent_.begin(), published_segment_recent_.end(), false);
+        publishResults(*msg, res, published_segments_, published_segment_recent_, published_segment_ids_, known_voxels);
+      }
+      return true;
     }
 
     // Frontier status depends on the 26-neighbourhood. A changed map voxel
@@ -407,7 +446,9 @@ private:
 
       const double range =
           (Eigen::Vector3d(voxel.wx, voxel.wy, voxel.wz) - robot_origin).norm();
-      if (range < min_range_ || range > max_range_)
+      // On demand, the map covers everything seen since the last batch, possibly far behind the
+      // robot by now. Skipped voxels would never become dirty again.
+      if (range < min_range_ || (!on_demand_ && range > max_range_))
       {
         ++out_of_range_candidates;
         continue;
@@ -579,6 +620,7 @@ private:
                   added_frontier_voxels.size(), out_of_range_candidates,
                   created_segments, merged_frontier_count, split_frontier_count,
                   published_segments_.size());
+    return true;
   }
 
 
@@ -905,6 +947,10 @@ private:
   double min_range_, max_range_, camera_hfov_, camera_vfov_, lidar_hfov_, lidar_vfov_, lidar_axis_pitch_, design_range_;
   int min_frontier_voxels_, max_frontier_voxels_;
   bool use_fov_extent_limits_, positive_z_is_up_, diagnostics_;
+  bool on_demand_ = false;
+  bool batch_requested_ = false;
+  octomap_msgs::msg::Octomap::SharedPtr latest_map_;
+  rclcpp::Subscription<std_msgs::msg::UInt32>::SharedPtr request_sub_;
   bool have_previous_octomap_ = false;
   double previous_resolution_ = 0.0;
   std::unordered_map<int64_t, Voxel> previous_voxels_;

@@ -163,6 +163,9 @@ FrontierViewpointOptimizer::FrontierViewpointOptimizer()
     geometry_tolerance_ = declare_parameter<double>("geometry_change_tolerance", 0.65);
     cached_visibility_min_fraction_ = declare_parameter<double>("cached_visibility_min_fraction", 0.10);
     diagnostics_ = declare_parameter<bool>("enable_diagnostics", true);
+    // On demand: idle until a FrontierArray arrives, then solve every frontier on that map and
+    // publish the complete result once. Off: continuous incremental optimization.
+    on_demand_ = declare_parameter<bool>("on_demand", false);
     draw_fov_markers_ = declare_parameter<bool>("draw_fov_markers", true);
     marker_alpha_ = declare_parameter<double>("fov_marker_alpha", 0.45);
     marker_segments_ = declare_parameter<int>("fov_azimuth_segments", 20);
@@ -206,7 +209,7 @@ FrontierViewpointOptimizer::FrontierViewpointOptimizer()
     marker_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>(
         marker_topic_, transient_qos);
     publish_timer_ = create_wall_timer(
-        std::chrono::milliseconds(500),
+        std::chrono::milliseconds(on_demand_ ? 100 : 500),
         std::bind(&FrontierViewpointOptimizer::publishCb, this));
 
     nlohmann::json metadata = {
@@ -454,7 +457,15 @@ bool FrontierViewpointOptimizer::definitelyOccluded(const Map &map, const Fronti
 void FrontierViewpointOptimizer::mapCb(octomap_msgs::msg::Octomap::SharedPtr message) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        pending_map_message_ = std::move(message);
+        if (on_demand_) {
+            // Stored only; decoded when a batch needs it.
+            latest_map_message_ = std::move(message);
+            if (!startBatchMapLocked()) {
+                return;
+            }
+        } else {
+            pending_map_message_ = std::move(message);
+        }
     }
     map_cv_.notify_one();
 }
@@ -502,6 +513,10 @@ void FrontierViewpointOptimizer::mapWorkerLoop() {
         {
             std::lock_guard<std::mutex> lock(mutex_);
             if (have_map_hash_ && hash == map_hash_) {
+                if (on_demand_) {
+                    installBatchLocked();
+                    cv_.notify_all();
+                }
                 continue;
             }
         }
@@ -519,6 +534,17 @@ void FrontierViewpointOptimizer::mapWorkerLoop() {
         const Map snapshot(tree);
         if (std::abs(snapshot->getResolution() - expected_resolution_) > 1.0e-5) {
             RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 5000, "OctoMap resolution %.3f differs from planning voxel %.3f", snapshot->getResolution(), expected_resolution_);
+            continue;
+        }
+        if (on_demand_) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            map_ = snapshot;
+            map_hash_ = hash;
+            have_map_hash_ = true;
+            map_frame_ = message->header.frame_id;
+            ++map_sequence_;
+            installBatchLocked();
+            cv_.notify_all();
             continue;
         }
         auto next_occupancy = expand(snapshot);
@@ -595,12 +621,63 @@ void FrontierViewpointOptimizer::odomCb(nav_msgs::msg::Odometry::SharedPtr messa
     robot_ = pose;
     have_odom_ = true;
     odom_frame_ = message->header.frame_id;
+    if (on_demand_ && !batch_active_) {
+        return;
+    }
     cv_.notify_all();
     validation_cv_.notify_all();
 }
 
 
+// On demand: hands the stored map to the map worker once it is at least as new as the batch.
+bool FrontierViewpointOptimizer::startBatchMapLocked() {
+    if (!pending_batch_ || !latest_map_message_ ||
+        rclcpp::Time(latest_map_message_->header.stamp) < rclcpp::Time(pending_batch_->header.stamp)) {
+        return false;
+    }
+    pending_map_message_ = latest_map_message_;
+    return true;
+}
+
+// On demand: replaces all frontiers by the pending batch and queues every one of them. Results of
+// earlier batches are discarded, because robot position and map have changed.
+void FrontierViewpointOptimizer::installBatchLocked() {
+    if (!pending_batch_) {
+        return;
+    }
+    frontiers_.clear();
+    pending_.clear();
+    pending_set_.clear();
+    validation_pending_.clear();
+    validation_set_.clear();
+    have_frontiers_ = true;
+    frontier_frame_ = pending_batch_->header.frame_id;
+    ++frontier_sequence_;
+    for (const Frontier &frontier : pending_batch_->frontiers) {
+        Entry entry;
+        entry.frontier = frontier;
+        entry.revision = ++global_revision_;
+        if (frontiers_.emplace(frontier.id, std::move(entry)).second) {
+            enqueueLocked(frontier.id);
+        }
+    }
+    pending_batch_.reset();
+    batch_active_ = true;
+    RCLCPP_INFO(get_logger(), "Batch started: %zu frontiers", frontiers_.size());
+}
+
 void FrontierViewpointOptimizer::frontierCb(FrontierArray::SharedPtr message) {
+    if (on_demand_) {
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            pending_batch_ = std::move(message);
+            if (!startBatchMapLocked()) {
+                return;  // mapCb continues when the map arrives
+            }
+        }
+        map_cv_.notify_one();
+        return;
+    }
     std::size_t added = 0;
     std::size_t updated = 0;
     std::size_t removed = 0;
@@ -1506,12 +1583,18 @@ void FrontierViewpointOptimizer::validationWorkerLoop() {
 
 void FrontierViewpointOptimizer::workerLoop() {
     Navigation cached_navigation;
+    bool working = false;  // this worker is counted in in_flight_
     while (true) {
         Work task;
         Map snapshot;
         Vector robot = Vector::Zero();
         {
             std::unique_lock<std::mutex> lock(mutex_);
+            if (working) {
+                // Every path out of the previous task ends up here.
+                --in_flight_;
+                working = false;
+            }
             cv_.wait_for(lock, std::chrono::milliseconds(200), [this]() { return stopping_ || !pending_.empty(); });
             if (stopping_) {
                 return;
@@ -1537,6 +1620,8 @@ void FrontierViewpointOptimizer::workerLoop() {
                 snapshot = map_;
                 robot = robot_;
                 got_task = true;
+                ++in_flight_;
+                working = true;
                 break;
             }
             if (!got_task) {
@@ -1704,6 +1789,12 @@ void FrontierViewpointOptimizer::publishCb() {
         std::lock_guard<std::mutex> lock(mutex_);
         if (!readyLocked()) {
             return;
+        }
+        if (on_demand_) {
+            if (!batch_active_ || pending_batch_ || !pending_set_.empty() || in_flight_ > 0) {
+                return;
+            }
+            batch_active_ = false;
         }
         frame = map_frame_;
         active = frontiers_.size();

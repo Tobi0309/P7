@@ -35,12 +35,14 @@ geometry_msgs::msg::Point FrontierViewpointSelection::pointMsg(const Vector &p) 
 }
 
 FrontierViewpointSelection::FrontierViewpointSelection() : rclcpp::Node("frontier_viewpoint_selection_node") {
+    Clock::source = get_clock();
     viewpoints_topic_ = declare_parameter<std::string>("optimized_topic", "/frontier_viewpoints");
     odom_topic_ = declare_parameter<std::string>("odometry_topic", "/Odometry");
     cost_service_ = declare_parameter<std::string>("dsp_cost_service", "/dsp/path_cost");
     planning_failure_service_name_ = declare_parameter<std::string>("planning_failure_service", "/dsp/planning_failure");
     finish_service_name_ = declare_parameter<std::string>("finish_service", "/frontier_viewpoint_selection/finish");
     command_service_ = declare_parameter<std::string>("dsp_set_goal_service", "/dsp/set_goal");
+    batch_request_topic_ = declare_parameter<std::string>("batch_request_topic", "/frontier_navigation/batch_request");
     command_retry_ = declare_parameter<double>("goal_command_retry_seconds", 0.5);
     command_timeout_ = declare_parameter<double>("goal_command_timeout_seconds", 2.0);
     information_weight_ = declare_parameter<double>("information_weight", 1.0);
@@ -65,22 +67,23 @@ FrontierViewpointSelection::FrontierViewpointSelection() : rclcpp::Node("frontie
     service_interval_ = declare_parameter<double>("dsp_request_interval_seconds", 0.15);
     cost_origin_distance_ = declare_parameter<double>("cost_origin_requery_distance", 1.5);
     key_quantization_ = declare_parameter<double>("cost_key_quantization", 0.5);
-    missing_grace_ = declare_parameter<double>("missing_goal_grace_seconds", 3.0);
+    batch_timeout_ = declare_parameter<double>("batch_timeout_seconds", 60.0);
+    batch_retry_ = declare_parameter<double>("batch_retry_seconds", 3.0);
+    selection_timeout_ = declare_parameter<double>("selection_timeout_seconds", 20.0);
     no_progress_timeout_ = declare_parameter<double>("navigation_no_progress_timeout_seconds", 50.0);
     progress_increment_ = declare_parameter<double>("navigation_progress_increment", 0.5);
+    yaw_progress_ = declare_parameter<double>("navigation_yaw_progress_deg", 5.0) * M_PI / 180.0;
     arrival_tolerance_ = declare_parameter<double>("arrival_position_tolerance", 0.5);
+    arrival_yaw_tolerance_ = declare_parameter<double>("arrival_yaw_tolerance_deg", 10.0) * M_PI / 180.0;
+    arrival_hold_ = declare_parameter<double>("arrival_hold_seconds", 0.5);
     observation_dwell_ = declare_parameter<double>("observation_settle_seconds", 2.0);
     visited_cooldown_ = declare_parameter<double>("visited_frontier_cooldown_seconds", 30.0);
-    improvement_hysteresis_ = declare_parameter<double>("switch_utility_margin", 0.25);
-    min_commit_ = declare_parameter<double>("minimum_goal_commit_seconds", 5.0);
     shortlist_size_ = declare_parameter<int>("max_rank_candidates", 8);
     lookahead_size_ = declare_parameter<int>("pairwise_cost_candidates", 4);
-    switch_confirmations_ = declare_parameter<int>("switch_confirmation_cycles", 3);
     min_cost_coverage_ = declare_parameter<int>("minimum_cost_coverage", 3);
-    utility_preemption_ = declare_parameter<bool>("enable_utility_preemption", false);
     diagnostics_ = declare_parameter<bool>("enable_diagnostics", true);
 
-    if (shortlist_size_ <= 0 || shortlist_size_ > 12 || lookahead_size_ < 0 || switch_confirmations_ <= 0 || min_cost_coverage_ <= 0) {
+    if (shortlist_size_ <= 0 || shortlist_size_ > 12 || lookahead_size_ < 0 || min_cost_coverage_ <= 0) {
         throw std::invalid_argument("max_rank_candidates must be in [1, 12]; other counts must be positive; pairwise_cost_candidates may be zero.");
     }
     if (ranking_period_ <= 0.0 || cache_ttl_ <= 0.0 || pairwise_cache_ttl_ <= 0.0 || failure_retry_ <= 0.0 || service_timeout_ <= 0.0 || service_interval_ < 0.0) {
@@ -95,7 +98,7 @@ FrontierViewpointSelection::FrontierViewpointSelection() : rclcpp::Node("frontie
     if (arrival_tolerance_ <= 0.0 || observation_dwell_ < 0.0 || no_progress_timeout_ <= 0.0 || progress_increment_ <= 0.0) {
         throw std::invalid_argument("Invalid navigation/arrival parameter.");
     }
-    if (missing_grace_ < 0.0 || visited_cooldown_ < 0.0 || min_commit_ < 0.0 || improvement_hysteresis_ < 0.0) {
+    if (arrival_yaw_tolerance_ <= 0.0 || arrival_hold_ < 0.0 || yaw_progress_ <= 0.0 || visited_cooldown_ < 0.0 || batch_timeout_ <= 0.0 || batch_retry_ < 0.0 || selection_timeout_ <= 0.0) {
         throw std::invalid_argument("Invalid goal lifecycle parameter.");
     }
     if (information_weight_ < 0.0 || path_cost_weight_ < 0.0 || path_distance_weight_ < 0.0 || gaussian_weight_ < 0.0) {
@@ -124,6 +127,7 @@ FrontierViewpointSelection::FrontierViewpointSelection() : rclcpp::Node("frontie
     finish_service_ = create_service<Trigger>(finish_service_name_, std::bind(&FrontierViewpointSelection::finishCb, this, std::placeholders::_1, std::placeholders::_2));
 
     command_client_ = create_client<SetGoal>(command_service_);
+    batch_pub_ = create_publisher<std_msgs::msg::UInt32>(batch_request_topic_, latched);
     state_pub_ = create_publisher<std_msgs::msg::String>("~/state", rclcpp::QoS(10));
     timer_ = create_wall_timer(std::chrono::milliseconds(200), std::bind(&FrontierViewpointSelection::tick, this));
     registerTop();
@@ -170,11 +174,16 @@ void FrontierViewpointSelection::heartbeatCb() {
 }
 
 void FrontierViewpointSelection::viewpointsCb(Array::SharedPtr msg) {
-    if (state_ == State::FINISHED) {
+    // Only the answer to the open request counts. Anything else (a latched or late message) is
+    // ignored, so the viewpoints stay fixed from selection until the goal is reached.
+    if (state_ != State::COMPUTE || !batch_requested_) {
+        return;
+    }
+    const auto current = Clock::now();
+    if (Clock::time_point(Clock::duration(rclcpp::Time(msg->header.stamp).nanoseconds())) < batch_started_) {
         return;
     }
     frame_ = msg->header.frame_id;
-    const auto current = Clock::now();
     std::unordered_map<uint32_t, SavedView> next;
     next.reserve(msg->viewpoints.size());
     for (const auto &view : msg->viewpoints) {
@@ -185,7 +194,13 @@ void FrontierViewpointSelection::viewpointsCb(Array::SharedPtr msg) {
     }
     views_ = std::move(next);
     have_views_ = true;
-    last_view_message_ = current;
+    batch_requested_ = false;
+    clearCosts();  // the map has changed
+    have_anchor_ = false;
+    select_ready_since_ = Clock::time_point{};
+    select_started_ = current;
+    state_ = State::SELECT_GOAL;
+    RCLCPP_INFO(get_logger(), "Batch %u complete: %zu viewpoints.", batch_id_, views_.size());
 }
 
 void FrontierViewpointSelection::odomCb(nav_msgs::msg::Odometry::SharedPtr msg) {
@@ -214,13 +229,8 @@ void FrontierViewpointSelection::finishCb(const std::shared_ptr<Trigger::Request
     ++goal_generation_;
     goal_id_.reset();
     order_.clear();
-    queue_.clear();
-    queued_.clear();
-    ++cost_request_token_;
-    if (cost_inflight_) {
-        cost_client_->remove_pending_request(cost_request_id_);
-        cost_inflight_ = false;
-    }
+    batch_requested_ = false;
+    clearCosts();
     sendHoldPose();
     publishStatus();
     RCLCPP_INFO(get_logger(), "Selector entered terminal FINISHED state.");
@@ -239,16 +249,15 @@ void FrontierViewpointSelection::planningFailureCb(const std::shared_ptr<Trigger
         response->message = "Replanning is already pending.";
         return;
     }
-    if ((state_ != State::NAVIGATING && state_ != State::REVALIDATE) || !goal_id_) {
+    if (state_ != State::NAVIGATING || !goal_id_) {
         response->success = false;
         response->message = "No active navigation goal to replan.";
         return;
     }
-    if (arrived()) {
-        reached_since_ = Clock::now();
-        state_ = State::GOAL_REACHED;
+    if (withinPosition()) {
+        // At the goal and settling or turning to its yaw; no route is needed.
         response->success = true;
-        response->message = "Goal already reached; no replanning required.";
+        response->message = "Already at the goal position; no replanning required.";
         return;
     }
 
@@ -798,24 +807,42 @@ void FrontierViewpointSelection::refreshQueries() {
     }
 }
 
-bool FrontierViewpointSelection::currentGoalAvailable() const {
-    return goal_id_ && views_.count(*goal_id_) != 0;
+void FrontierViewpointSelection::clearCosts() {
+    costs_.clear();
+    failed_until_.clear();
+    queue_.clear();
+    queued_.clear();
+    ++cost_request_token_;
+    if (cost_inflight_) {
+        cost_client_->remove_pending_request(cost_request_id_);
+        cost_inflight_ = false;
+    }
 }
 
-bool FrontierViewpointSelection::arrived() const {
+// Asks frontier segmentation (and, through it, the viewpoint optimizer) for one full computation.
+void FrontierViewpointSelection::requestBatch(const char *reason) {
+    std_msgs::msg::UInt32 request;
+    request.data = ++batch_id_;
+    batch_requested_ = true;
+    batch_started_ = Clock::now();
+    batch_pub_->publish(request);
+    RCLCPP_INFO(get_logger(), "Batch %u requested: %s.", batch_id_, reason);
+}
+
+bool FrontierViewpointSelection::withinPosition() const {
     return goal_id_ && have_odom_ && (robot_ - point(goal_pose_.pose.position)).norm() <= arrival_tolerance_;
 }
 
-double FrontierViewpointSelection::currentUtility() const {
-    if (!goal_id_ || views_.find(*goal_id_) == views_.end()) {
-        return -1.0e30;
-    }
-    const double information = viewpointReward(*goal_id_);
-    const auto cost = getCost(cost_anchor_, point(goal_pose_.pose.position));
-    if (!cost || !cost->valid) {
-        return information;
-    }
-    return information - path_cost_weight_ * cost->cost - path_distance_weight_ * cost->distance;
+double FrontierViewpointSelection::yawError() const {
+    const auto yaw = [](const geometry_msgs::msg::Quaternion &q) {
+        return std::atan2(2.0 * (q.w * q.z + q.x * q.y), q.w * q.w + q.x * q.x - q.y * q.y - q.z * q.z);
+    };
+    const double difference = yaw(robot_orientation_) - yaw(goal_pose_.pose.orientation);
+    return std::abs(std::atan2(std::sin(difference), std::cos(difference)));
+}
+
+bool FrontierViewpointSelection::arrived() const {
+    return withinPosition() && yawError() <= arrival_yaw_tolerance_;
 }
 
 void FrontierViewpointSelection::startGoal(uint32_t id) {
@@ -828,19 +855,17 @@ void FrontierViewpointSelection::startGoal(uint32_t id) {
     goal_pose_.header.frame_id = frame_;
     goal_pose_.header.stamp = now();
     ++goal_generation_;
-    goal_started_ = Clock::now();
-    last_progress_time_ = goal_started_;
+    last_progress_time_ = Clock::now();
     closest_goal_distance_ = (robot_ - point(goal_pose_.pose.position)).norm();
-    missing_since_ = Clock::time_point{};
-    better_goal_id_.reset();
-    better_goal_hits_ = 0;
-    last_review_ = goal_started_;
+    smallest_yaw_error_ = std::numeric_limits<double>::infinity();
+    arrived_since_ = Clock::time_point{};
     select_ready_since_ = Clock::time_point{};
     state_ = State::NAVIGATING;
-    sendCommand(goal_pose_);
     order_ = planOrder();
+    sendCommand(goal_pose_);
     RCLCPP_INFO(get_logger(), "Committed frontier %u at (%.2f, %.2f, %.2f).", id, goal_pose_.pose.position.x, goal_pose_.pose.position.y, goal_pose_.pose.position.z);
     logSelectedOrder();
+    clearCosts();
 }
 
 void FrontierViewpointSelection::abandonGoal(const char *reason) {
@@ -851,10 +876,6 @@ void FrontierViewpointSelection::abandonGoal(const char *reason) {
     sendHoldPose();
     goal_id_.reset();
     ++goal_generation_;
-    missing_since_ = Clock::time_point{};
-    better_goal_id_.reset();
-    better_goal_hits_ = 0;
-    last_review_ = Clock::now();
     select_ready_since_ = Clock::time_point{};
 }
 
@@ -872,9 +893,9 @@ void FrontierViewpointSelection::completeGoal() {
 
 std::string FrontierViewpointSelection::stateName() const {
     switch (state_) {
+        case State::COMPUTE: return "COMPUTE";
         case State::SELECT_GOAL: return "SELECT_GOAL";
         case State::NAVIGATING: return "NAVIGATING";
-        case State::REVALIDATE: return "REVALIDATE";
         case State::REPLAN: return "REPLAN";
         case State::GOAL_REACHED: return "GOAL_REACHED";
         case State::FINISHED: return "FINISHED";
@@ -887,10 +908,25 @@ void FrontierViewpointSelection::processStateMachine() {
     if (state_ == State::FINISHED) {
         return;
     }
+    if (state_ == State::COMPUTE) {
+        if (!batch_requested_) {
+            if (current >= batch_not_before_) {
+                requestBatch("new goal needed");
+            }
+        } else if (std::chrono::duration<double>(current - batch_started_).count() > batch_timeout_) {
+            RCLCPP_WARN(get_logger(), "Batch %u not answered within %.0f s; requesting again.", batch_id_, batch_timeout_);
+            requestBatch("previous batch timed out");
+        }
+        return;
+    }
     if (state_ == State::SELECT_GOAL) {
         const auto candidates = shortlist();
-        if (candidates.empty()) {
-            select_ready_since_ = Clock::time_point{};
+        const bool timed_out = std::chrono::duration<double>(current - select_started_).count() > selection_timeout_;
+        if (candidates.empty() || timed_out) {
+            RCLCPP_WARN(get_logger(), "No goal selected (%s); computing a new batch.", candidates.empty() ? "no viewpoints available" : "no verified DSP route in time");
+            clearCosts();
+            batch_not_before_ = current + std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(batch_retry_));
+            state_ = State::COMPUTE;
             return;
         }
         const int required = std::min(min_cost_coverage_, static_cast<int>(candidates.size()));
@@ -919,96 +955,50 @@ void FrontierViewpointSelection::processStateMachine() {
         return;
     }
     if (state_ == State::NAVIGATING) {
-        // Completion is determined by odometry, not a succeeded subscription.
+        // Stays here until the goal pose is reached. Only a DSP planning failure (service
+        // callback) or no progress ends it early; disappearing frontiers do not.
         if (arrived()) {
-            reached_since_ = current;
-            state_ = State::GOAL_REACHED;
-            RCLCPP_INFO(get_logger(), "Reached goal position within %.2f m.", arrival_tolerance_);
+            if (arrived_since_ == Clock::time_point{}) {
+                arrived_since_ = current;
+            }
+            if (std::chrono::duration<double>(current - arrived_since_).count() >= arrival_hold_) {
+                reached_since_ = current;
+                state_ = State::GOAL_REACHED;
+                RCLCPP_INFO(get_logger(), "Reached goal pose: %.2f m, %.1f deg.", (robot_ - point(goal_pose_.pose.position)).norm(), yawError() * 180.0 / M_PI);
+            }
             return;
         }
+        arrived_since_ = Clock::time_point{};
         const double distance = (robot_ - point(goal_pose_.pose.position)).norm();
         if (distance < closest_goal_distance_ - progress_increment_) {
             closest_goal_distance_ = distance;
+            last_progress_time_ = current;
+        }
+        // Turning only counts as progress at the goal position.
+        if (withinPosition() && yawError() < smallest_yaw_error_ - yaw_progress_) {
+            smallest_yaw_error_ = yawError();
             last_progress_time_ = current;
         }
         if (std::chrono::duration<double>(current - last_progress_time_).count() > no_progress_timeout_) {
             if (goal_id_) {
                 visited_until_[*goal_id_] = current + std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(visited_cooldown_));
             }
-            replan_reason_ = "no odometry progress";
+            replan_reason_ = "no progress in distance or yaw";
             state_ = State::REPLAN;
-            return;
         }
-        if (std::chrono::duration<double>(current - last_review_).count() >= ranking_period_) {
-            state_ = State::REVALIDATE;
-        }
-        return;
-    }
-    if (state_ == State::REVALIDATE) {
-        if (arrived()) {
-            reached_since_ = current;
-            state_ = State::GOAL_REACHED;
-            return;
-        }
-        if (!currentGoalAvailable()) {
-            if (missing_since_ == Clock::time_point{}) {
-                missing_since_ = current;
-            }
-            if (std::chrono::duration<double>(current - missing_since_).count() >= missing_grace_) {
-                replan_reason_ = "committed viewpoint disappeared from latest optimizer output";
-                state_ = State::REPLAN;
-            } else {
-                state_ = State::NAVIGATING;
-            }
-            last_review_ = current;
-            return;
-        }
-        missing_since_ = Clock::time_point{};
-        if (utility_preemption_ && std::chrono::duration<double>(current - goal_started_).count() >= min_commit_) {
-            const auto order = planOrder(false);
-            if (!order.empty() && order.front() != *goal_id_) {
-                const auto ranked = rankFrom(cost_anchor_, {order.front()});
-                if (ranked.empty()) {
-                    last_review_ = current;
-                    state_ = State::NAVIGATING;
-                    return;
-                }
-                const double incumbent = currentUtility();
-                const double margin = improvement_hysteresis_ * std::max(1.0, std::abs(incumbent));
-                if (ranked.front().utility > incumbent + margin) {
-                    if (better_goal_id_ == ranked.front().id) {
-                        ++better_goal_hits_;
-                    } else {
-                        better_goal_id_ = ranked.front().id;
-                        better_goal_hits_ = 1;
-                    }
-                    if (better_goal_hits_ >= switch_confirmations_) {
-                        replan_reason_ = "higher-utility frontier consistently outranks committed goal";
-                        state_ = State::REPLAN;
-                        return;
-                    }
-                } else {
-                    better_goal_id_.reset();
-                    better_goal_hits_ = 0;
-                }
-            } else {
-                better_goal_id_.reset();
-                better_goal_hits_ = 0;
-            }
-        }
-        last_review_ = current;
-        state_ = State::NAVIGATING;
         return;
     }
     if (state_ == State::REPLAN) {
         abandonGoal(replan_reason_.c_str());
-        state_ = State::SELECT_GOAL;
+        batch_not_before_ = Clock::time_point{};
+        state_ = State::COMPUTE;
         return;
     }
     if (state_ == State::GOAL_REACHED) {
         if (std::chrono::duration<double>(current - reached_since_).count() >= observation_dwell_) {
             completeGoal();
-            state_ = State::SELECT_GOAL;
+            batch_not_before_ = Clock::time_point{};
+            state_ = State::COMPUTE;
         }
     }
 }
@@ -1074,7 +1064,13 @@ void FrontierViewpointSelection::tick() {
         publishStatus();
         return;
     }
-    if (!have_odom_ || !have_views_) {
+    if (!have_odom_) {
+        publishStatus();
+        return;
+    }
+    if (state_ != State::SELECT_GOAL) {
+        // No DSP cost queries or ranking outside goal selection.
+        processStateMachine();
         publishStatus();
         return;
     }

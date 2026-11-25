@@ -116,6 +116,8 @@ private:
     bool frontierTouchesChanges(const Map &map, const Frontier &frontier, const std::unordered_set<Key, KeyHash, KeyEqual> &changed) const;
     void compactQueuesLocked();
 
+    bool startBatchMapLocked();
+    void installBatchLocked();
     bool readyLocked() const;
     void enqueueLocked(uint32_t id);
     void enqueueValidationLocked(uint32_t id);
@@ -177,6 +179,12 @@ private:
     std::condition_variable validation_cv_;
     std::condition_variable map_cv_;
     octomap_msgs::msg::Octomap::SharedPtr pending_map_message_;
+    // On-demand batches
+    bool on_demand_{false};
+    bool batch_active_{false};
+    int in_flight_{0};
+    octomap_msgs::msg::Octomap::SharedPtr latest_map_message_;
+    FrontierArray::SharedPtr pending_batch_;
     std::unordered_set<Key, KeyHash, KeyEqual> last_changed_cells_;
     uint64_t global_revision_{0};
     int optimization_worker_count_{2};

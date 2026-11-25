@@ -25,6 +25,8 @@ frontier_segmentation:
     frontier_design_range_m: 10.0
     use_fov_extent_limits: false
     positive_z_is_up: true
+    # Compute only when the viewpoint selector needs a new goal.
+    on_demand: true
     diagnostics: false
     frontier_topic: /frontier_segments
     marker_topic: /frontier_segments/markers

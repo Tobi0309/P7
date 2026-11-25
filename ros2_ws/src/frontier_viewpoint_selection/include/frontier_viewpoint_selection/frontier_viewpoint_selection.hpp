@@ -7,6 +7,7 @@
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <std_msgs/msg/string.hpp>
+#include <std_msgs/msg/u_int32.hpp>
 #include <std_srvs/srv/trigger.hpp>
 
 #include <Eigen/Core>
@@ -31,7 +32,14 @@ public:
     ~FrontierViewpointSelection() override;
 
 private:
-    using Clock = std::chrono::steady_clock;
+    // Node clock (ROS time: /clock with use_sim_time, otherwise system time), so that all
+    // durations scale with the simulation speed.
+    struct Clock {
+        using duration = std::chrono::nanoseconds;
+        using time_point = std::chrono::time_point<Clock, duration>;
+        static inline rclcpp::Clock::SharedPtr source;
+        static time_point now() { return time_point(duration(source->now().nanoseconds())); }
+    };
     using Vector = Eigen::Vector3d;
     using View = frontier_viewpoint_optimizer::msg::OptimizedFrontier;
     using Array = frontier_viewpoint_optimizer::msg::OptimizedFrontierArray;
@@ -40,7 +48,9 @@ private:
     using Trigger = std_srvs::srv::Trigger;
     using PairKey = std::array<int64_t, 6>;
 
-    enum class State { SELECT_GOAL, NAVIGATING, REVALIDATE, REPLAN, GOAL_REACHED, FINISHED };
+    // COMPUTE: frontiers and viewpoints are being computed for the next decision.
+    // Frontier work only happens in COMPUTE and SELECT_GOAL, never while NAVIGATING.
+    enum class State { COMPUTE, SELECT_GOAL, NAVIGATING, REPLAN, GOAL_REACHED, FINISHED };
 
     struct SavedView {
         View data;
@@ -106,9 +116,11 @@ private:
     void startGoal(uint32_t id);
     void abandonGoal(const char *reason);
     void completeGoal();
-    bool currentGoalAvailable() const;
+    void requestBatch(const char *reason);
+    void clearCosts();
+    bool withinPosition() const;
+    double yawError() const;
     bool arrived() const;
-    double currentUtility() const;
     void processStateMachine();
     std::string stateName() const;
     static Vector point(const geometry_msgs::msg::Point &p);
@@ -121,6 +133,7 @@ private:
     rclcpp::Service<Trigger>::SharedPtr finish_service_;
     rclcpp::Client<SetGoal>::SharedPtr command_client_;  // DSP /dsp/set_goal
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr state_pub_;
+    rclcpp::Publisher<std_msgs::msg::UInt32>::SharedPtr batch_pub_;
     rclcpp::TimerBase::SharedPtr timer_;
     rclcpp::TimerBase::SharedPtr heartbeat_timer_;
 
@@ -139,21 +152,22 @@ private:
     bool have_odom_{false};
     bool have_anchor_{false};
     bool have_views_{false};
-    Clock::time_point last_view_message_{};
 
-    State state_{State::SELECT_GOAL};
+    State state_{State::COMPUTE};
+    bool batch_requested_{false};
+    uint32_t batch_id_{0};
+    Clock::time_point batch_started_{};
+    Clock::time_point batch_not_before_{};
+    Clock::time_point select_started_{};
     std::optional<uint32_t> goal_id_;
     geometry_msgs::msg::PoseStamped goal_pose_;
-    Clock::time_point goal_started_{};
-    Clock::time_point missing_since_{};
+    Clock::time_point arrived_since_{};
     Clock::time_point reached_since_{};
     Clock::time_point last_progress_time_{};
     double closest_goal_distance_{std::numeric_limits<double>::infinity()};
     Clock::time_point last_ranking_{};
-    Clock::time_point last_review_{};
     Clock::time_point select_ready_since_{};
-    std::optional<uint32_t> better_goal_id_;
-    int better_goal_hits_{0};
+    double smallest_yaw_error_{std::numeric_limits<double>::infinity()};
     std::vector<uint32_t> order_;
     std::string replan_reason_{"navigation goal invalidated"};
     uint64_t goal_generation_{0};
@@ -179,6 +193,7 @@ private:
     std::string cost_service_;
     std::string planning_failure_service_name_;
     std::string finish_service_name_;
+    std::string batch_request_topic_;
     std::string command_service_;
     double command_retry_{0.5};
     double command_timeout_{2.0};
@@ -204,19 +219,20 @@ private:
     double service_interval_{0.15};
     double cost_origin_distance_{1.5};
     double key_quantization_{0.5};
-    double missing_grace_{3.0};
+    double batch_timeout_{60.0};
+    double batch_retry_{3.0};
+    double selection_timeout_{20.0};
     double no_progress_timeout_{50.0};
     double progress_increment_{0.5};
+    double yaw_progress_{0.0873};
     double arrival_tolerance_{0.5};
+    double arrival_yaw_tolerance_{0.1745};
+    double arrival_hold_{0.5};
     double observation_dwell_{2.0};
     double visited_cooldown_{30.0};
-    double improvement_hysteresis_{0.25};
-    double min_commit_{5.0};
     int shortlist_size_{8};
     int lookahead_size_{4};
-    int switch_confirmations_{3};
     int min_cost_coverage_{3};
-    bool utility_preemption_{false};
     bool diagnostics_{true};
 };
 

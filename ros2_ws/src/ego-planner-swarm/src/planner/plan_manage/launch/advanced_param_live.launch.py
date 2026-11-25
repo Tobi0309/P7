@@ -22,7 +22,7 @@ def generate_launch_description():
     fx = LaunchConfiguration('fx', default=387.229248046875)
     fy = LaunchConfiguration('fy', default=387.229248046875)
     
-    max_vel = LaunchConfiguration('max_vel', default=0.5)
+    max_vel = LaunchConfiguration('max_vel', default=1.2)
     max_acc = LaunchConfiguration('max_acc', default=0.5)
     planning_horizon = LaunchConfiguration('planning_horizon', default=7.5)
     
@@ -229,7 +229,7 @@ def generate_launch_description():
         {'use_sim_time': ParameterValue(use_sim_time, value_type=bool)},
         {'traj_server/time_forward': 1.0},
         # Yaw rate [rad/s] used to turn in place to the goal orientation after arriving.
-        {'traj_server/goal_yaw_rate': 0.5}
+        {'traj_server/goal_yaw_rate': 1.5}
         ]
     )
 

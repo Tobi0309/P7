@@ -64,4 +64,6 @@ frontier_viewpoint_optimizer:
     draw_fov_markers: true
     fov_marker_alpha: 0.45
     fov_azimuth_segments: 20
+    # Compute only when the viewpoint selector needs a new goal.
+    on_demand: true
     enable_diagnostics: true
