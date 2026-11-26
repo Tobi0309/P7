@@ -57,7 +57,7 @@ class YOLO_Human_Detection(Node):
         self.det_pub = self.create_publisher(Detection2DArray, self.get_parameter('detections_topic').value, 10)
 
         #Create a service to stop the drone when a human is detected
-        self.stop_client = self.create_client(Trigger, '/drone/stop')
+        self.stop_client = self.create_client(Trigger, '/frontier_viewpoint_selection/finish')
 
 
 

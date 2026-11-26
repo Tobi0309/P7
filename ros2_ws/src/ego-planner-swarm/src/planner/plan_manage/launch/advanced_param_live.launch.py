@@ -180,8 +180,11 @@ def generate_launch_description():
             {'grid_map/min_ray_length': 0.1},
             {'grid_map/max_ray_length': 4.5},
             
-            {'grid_map/virtual_ceil_height': 5.0},
-            {'grid_map/visualization_truncate_height': 4.9},
+            # The map rolls in z with the drone: no absolute ceiling (< -0.5 disables it).
+            # Height limits are applied by DSP and the frontier selection instead.
+            {'grid_map/virtual_ceil_height': -1.0},
+            # Display only. The map rolls in z, so do not hide voxels above a fixed height.
+            {'grid_map/visualization_truncate_height': 1000.0},
             {'grid_map/show_occ_time': False},
             {'grid_map/pose_type': 1},
             {'grid_map/frame_id': 'camera_init'},

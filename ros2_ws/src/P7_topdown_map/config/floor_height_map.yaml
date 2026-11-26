@@ -1,0 +1,10 @@
+floor_height_map:
+  ros__parameters:
+    # Full LiDAR OctoMap, the same map DSP builds its floor from. Its voxels line up with
+    # /octomap_binary_filtered (same 0.5 m resolution and frame), so lookups match both maps.
+    octomap_topic: /octomap_full
+    output_topic: /floor_height_map
+    # The OctoMap is decoded at most this often (wall time).
+    update_period_seconds: 2.0
+    # Median window (cells) for smoothing the floor, as DSP's height_kernel_size.
+    height_kernel_size: 3

@@ -26,6 +26,7 @@
 #include "octomap/octomap.h"
 
 #include "visualization_msgs/msg/marker.hpp"
+#include "sensor_msgs/msg/point_cloud2.hpp"
 
 #include <memory>
 #include <algorithm>
@@ -84,6 +85,16 @@ private:
     // Height map:
     void buildHeightMap();
     void buildHeightCostMap();
+    // Floor height map (P7_topdown_map floor_height_map_node) and hard height limits.
+    void floorHeightCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg);
+    bool externalFloorAt(double x, double y, double &z_top) const;
+    bool heightLimitsEnabled() const;
+    // Keeps the drone's own column free between its height and the allowed band, so take-off
+    // and a drone outside the band can still plan back into it. Updates the graph if it moved.
+    void updateHeightExemption();
+    bool heightExempt(int idx) const;
+    // True if the voxel at grid position g (voxel units) is outside the height band.
+    bool outsideHeightBand(const Eigen::Vector3d &g) const;
 
 
     // set ending point of planing
@@ -110,6 +121,7 @@ private:
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr set_start_odom_sub_;
     rclcpp::Subscription<octomap_msgs::msg::Octomap>::SharedPtr get_octomap_sub_;
     rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr get_ocupancy_sub_;
+    rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr floor_height_sub_;
     rclcpp::TimerBase::SharedPtr path_update_timer;
     rclcpp::TimerBase::SharedPtr goal_publish_timer;
 
@@ -140,6 +152,24 @@ private:
 
     std::vector<int> floor_height_map;
     std::vector<double> height_cost_map;
+    // World z of the floor surface per (x, y) column (external floor map, else own floor map,
+    // else default_floor_height).
+    std::vector<double> floor_top_z_;
+    // 1 = voxel centre outside [floor + min_height_above_ground, floor + max_height_above_ground].
+    std::vector<uint8_t> height_blocked_;
+    // Exempt cells: column exempt_column_ (x + y * length_voxel), z in [exempt_z_lo_, exempt_z_hi_].
+    int exempt_column_ = -1;
+    int exempt_z_lo_ = 0;
+    int exempt_z_hi_ = -1;
+    struct ExternalFloor {
+        bool valid = false;
+        double x0 = 0.0, y0 = 0.0, res = 0.5;  // lower corner of cell (0, 0)
+        int nx = 0, ny = 0;
+        std::vector<float> z;
+    } external_floor_;
+    double min_height_above_ground_ = -1.0e9;
+    double max_height_above_ground_ = 1.0e9;
+    double default_floor_height_ = 0.0;
 
 
 

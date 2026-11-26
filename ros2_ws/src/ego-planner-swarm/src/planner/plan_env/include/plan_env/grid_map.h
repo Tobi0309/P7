@@ -108,7 +108,8 @@ struct MappingData
   // camera position and pose data
 
   Eigen::Vector3d camera_pos_, last_camera_pos_;
-  Eigen::Vector2i ring_buffer_offset_;
+  // Ring-buffer offset per axis: x, y and z all roll with the drone.
+  Eigen::Vector3i ring_buffer_offset_;
   Eigen::Matrix3d camera_r_m_, last_camera_r_m_;
   Eigen::Matrix4d cam2body_;
 
@@ -278,11 +279,13 @@ inline int GridMap::toAddress(const Eigen::Vector3i &id)
   const int nx = mp_.map_voxel_num_(0);
   const int ny = mp_.map_voxel_num_(1);
 
+  const int nz = mp_.map_voxel_num_(2);
+
   const int x = (id(0) + md_.ring_buffer_offset_(0)) % nx;
   const int y = (id(1) + md_.ring_buffer_offset_(1)) % ny;
+  const int z = (id(2) + md_.ring_buffer_offset_(2)) % nz;
 
-  return x * ny * mp_.map_voxel_num_(2) +
-         y * mp_.map_voxel_num_(2) + id(2);
+  return x * ny * nz + y * nz + z;
 }
 
 inline int GridMap::toAddress(int &x, int &y, int &z)
@@ -290,11 +293,13 @@ inline int GridMap::toAddress(int &x, int &y, int &z)
   const int nx = mp_.map_voxel_num_(0);
   const int ny = mp_.map_voxel_num_(1);
 
+  const int nz = mp_.map_voxel_num_(2);
+
   const int physical_x = (x + md_.ring_buffer_offset_(0)) % nx;
   const int physical_y = (y + md_.ring_buffer_offset_(1)) % ny;
+  const int physical_z = (z + md_.ring_buffer_offset_(2)) % nz;
 
-  return physical_x * ny * mp_.map_voxel_num_(2) +
-         physical_y * mp_.map_voxel_num_(2) + z;
+  return physical_x * ny * nz + physical_y * nz + physical_z;
 }
 
 inline void GridMap::boundIndex(Eigen::Vector3i &id)

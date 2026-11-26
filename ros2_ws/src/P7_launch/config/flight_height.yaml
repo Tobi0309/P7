@@ -1,0 +1,35 @@
+# Flight height settings for the whole stack. Every value is in metres.
+#
+# This file is the only place these heights are set. The launch files read it (through
+# P7_launch.flight_height) and pass the values to:
+#   - DSP                      preferred height (soft cost) and hard min/max limits
+#   - frontier optimizer       viewpoint hard min/max limits and preferred height (penalty)
+#   - ego-planner              height of its z-rolling local map (no height limits of its own)
+#   - goal_converter_dsp       height of manual /goal clicks
+#
+# "Above ground" means above the floor height map (/floor_height_map, P7_topdown_map
+# floor_height_map_node: DSP's floor method on /octomap_full). DSP and the frontier optimizer
+# both read it; where it has no value they use the take-off level (z = 0 in camera_init).
+# The optimizer plans on the camera-filtered OctoMap, but looks the floor up by world (x, y),
+# and both OctoMaps share the same 0.5 m grid in camera_init.
+#
+# ego-planner is free in height: its local map rolls in x, y and z with the drone and has no
+# ground or ceiling. The hard limits are enforced by DSP (path) and the frontier optimizer
+# (viewpoints); ego-planner follows DSP's look-ahead goals.
+flight_height:
+  # Preferred flying height above ground.
+  average_height: 3.0
+  # Hard lower / upper limit above ground. DSP treats voxels outside the band as occupied
+  # (except the drone's own column, so it can climb into the band); the frontier optimizer
+  # only proposes viewpoints inside it.
+  min_height: -0.5
+  max_height: 5.0
+
+  # OctoMap voxel size used by DSP (octomap_server `resolution` in mapping.launch.py). Needed
+  # because DSP takes its preferred height in voxels: round(average_height / map_resolution).
+  map_resolution: 0.5
+
+  # Height of ego-planner's local map. It rolls with the drone: re-centred whenever the drone is
+  # more than 20 % of this from the map centre, so obstacles up to about +-0.3 * ego_map_height
+  # above/below the drone are always mapped. Memory: about 21 MB per metre (42 x 30 m, 0.1 m).
+  ego_map_height: 8.0

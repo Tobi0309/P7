@@ -13,9 +13,12 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node, SetParameter
 
+from P7_launch.flight_height import load_flight_height
+
 
 def generate_launch_description():
     p7_share = Path(get_package_share_directory('P7_launch'))
+    height = load_flight_height()  # config/flight_height.yaml [m]
 
     rviz_config_argument = DeclareLaunchArgument(
         'rviz_config',
@@ -58,7 +61,17 @@ def generate_launch_description():
         name='frontier_viewpoint_optimizer',
         output='log',
         parameters=[
-            str(p7_share / 'config' / 'frontier_viewpoint_optimizer.yaml')
+            str(p7_share / 'config' / 'frontier_viewpoint_optimizer.yaml'),
+            # Viewpoints only inside [floor + min_height, floor + max_height] (floor height map);
+            # heights above floor + average_height are penalised (see altitude_* in the yaml).
+            # altitude_reference_z is the take-off-level fallback without a floor height map.
+            {
+                'floor_height_topic': '/floor_height_map',
+                'min_height_above_ground': height['min_height'],
+                'max_height_above_ground': height['max_height'],
+                'preferred_height_above_ground': height['average_height'],
+                'altitude_reference_z': height['average_height'],
+            },
         ],
     )
 

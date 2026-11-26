@@ -44,8 +44,8 @@ frontier_viewpoint_optimizer:
     volume_score_depth_cap_m: 2.0
     volume_unknown_depth_cap: 6.0
     volume_ray_step: 0.5
-    altitude_bias_weight: 0.25
-    altitude_reference_z: 3.0
+    altitude_bias_weight: 2.0
+    # altitude_reference_z (preferred height) is set from config/flight_height.yaml.
     altitude_excess_scale: 2.0
     excessive_altitude_penalty_weight: 1.2
 

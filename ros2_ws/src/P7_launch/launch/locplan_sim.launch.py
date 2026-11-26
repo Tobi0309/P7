@@ -6,6 +6,8 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node, SetParameter
 from ament_index_python.packages import get_package_share_directory
+
+from P7_launch.flight_height import load_flight_height
 import os
 
 
@@ -86,6 +88,8 @@ def generate_launch_description():
         package='P7_helper',
         executable='goal_converter_dsp',
         name='goal_converter_dsp',
+        # Manual /goal height [m] from config/flight_height.yaml.
+        parameters=[{'goal_height': load_flight_height()['average_height']}],
         output='screen',
     )
 

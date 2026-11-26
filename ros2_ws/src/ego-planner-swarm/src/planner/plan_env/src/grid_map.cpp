@@ -126,7 +126,7 @@ void GridMap::initMap(rclcpp::Node::SharedPtr node)
   md_.count_hit_ = vector<short>(buffer_size, 0);
   md_.flag_rayend_ = vector<char>(buffer_size, -1);
   md_.flag_traverse_ = vector<char>(buffer_size, -1);
-  md_.ring_buffer_offset_ = Eigen::Vector2i::Zero();
+  md_.ring_buffer_offset_ = Eigen::Vector3i::Zero();
 
   md_.raycast_num_ = 0;
 
@@ -702,6 +702,8 @@ void GridMap::clearAndInflateLocalMap()
   if (mp_.virtual_ceil_height_ > -0.5)
   {
     int ceil_id = floor((mp_.virtual_ceil_height_ - mp_.map_origin_(2)) * mp_.resolution_inv_) - 1;
+    // The map rolls in z, so the absolute ceiling can lie outside the current map.
+    if (ceil_id >= 0 && ceil_id < mp_.map_voxel_num_(2))
     for (int x = md_.local_bound_min_(0); x <= md_.local_bound_max_(0); ++x)
       for (int y = md_.local_bound_min_(1); y <= md_.local_bound_max_(1); ++y)
       {
@@ -814,14 +816,13 @@ void GridMap::odomCallback(const nav_msgs::msg::Odometry::SharedPtr odom)
 }
 void GridMap::rollMapIfNeeded()
 {
-  const int nx = mp_.map_voxel_num_(0);
-  const int ny = mp_.map_voxel_num_(1);
-  const int nz = mp_.map_voxel_num_(2);
+  const Eigen::Vector3i n = mp_.map_voxel_num_;
 
-  Eigen::Vector2i shift = Eigen::Vector2i::Zero();
+  Eigen::Vector3i shift = Eigen::Vector3i::Zero();
 
-  // Trigger a map shift when UAV moves beyond 20% of map dimensions.
-  for (int axis = 0; axis < 2; ++axis)
+  // Trigger a map shift when UAV moves beyond 20% of map dimensions. All three axes roll, so
+  // the map follows the drone in height too (no fixed ground or ceiling).
+  for (int axis = 0; axis < 3; ++axis)
   {
     const double map_center =
         mp_.map_origin_(axis) + 0.5 * mp_.map_size_(axis);
@@ -836,20 +837,19 @@ void GridMap::rollMapIfNeeded()
     }
   }
 
-  if (shift(0) == 0 && shift(1) == 0)
+  if (shift.isZero())
     return;
 
   // Move the logical map origin.
-  mp_.map_origin_(0) += shift(0) * mp_.resolution_;
-  mp_.map_origin_(1) += shift(1) * mp_.resolution_;
+  mp_.map_origin_ += shift.cast<double>() * mp_.resolution_;
 
   mp_.map_min_boundary_ = mp_.map_origin_;
   mp_.map_max_boundary_ = mp_.map_origin_ + mp_.map_size_;
 
   // Update circular-buffer offsets.
-  for (int axis = 0; axis < 2; ++axis)
+  for (int axis = 0; axis < 3; ++axis)
   {
-    const int size = mp_.map_voxel_num_(axis);
+    const int size = n(axis);
     const int updated = md_.ring_buffer_offset_(axis) + shift(axis);
 
     md_.ring_buffer_offset_(axis) = ((updated % size) + size) % size;
@@ -873,43 +873,22 @@ void GridMap::rollMapIfNeeded()
     md_.flag_traverse_[address] = -1;
   };
 
-  // Clear newly exposed X region.
-  if (shift(0) > 0)
+  // Clear the newly exposed slab of each shifted axis (logical indices after the shift: the
+  // far end for a positive shift, the near end for a negative one).
+  for (int axis = 0; axis < 3; ++axis)
   {
-    const int start = std::max(0, nx - shift(0));
+    if (shift(axis) == 0)
+      continue;
+    Eigen::Vector3i lo = Eigen::Vector3i::Zero();
+    Eigen::Vector3i hi = n - Eigen::Vector3i::Ones();
+    if (shift(axis) > 0)
+      lo(axis) = std::max(0, n(axis) - shift(axis));
+    else
+      hi(axis) = std::min(n(axis) - 1, -shift(axis) - 1);
 
-    for (int x = start; x < nx; ++x)
-      for (int y = 0; y < ny; ++y)
-        for (int z = 0; z < nz; ++z)
-          clearVoxel(x, y, z);
-  }
-  else if (shift(0) < 0)
-  {
-    const int end = std::min(nx - 1, -shift(0) - 1);
-
-    for (int x = 0; x <= end; ++x)
-      for (int y = 0; y < ny; ++y)
-        for (int z = 0; z < nz; ++z)
-          clearVoxel(x, y, z);
-  }
-
-  // Clear newly exposed Y region.
-  if (shift(1) > 0)
-  {
-    const int start = std::max(0, ny - shift(1));
-
-    for (int x = 0; x < nx; ++x)
-      for (int y = start; y < ny; ++y)
-        for (int z = 0; z < nz; ++z)
-          clearVoxel(x, y, z);
-  }
-  else if (shift(1) < 0)
-  {
-    const int end = std::min(ny - 1, -shift(1) - 1);
-
-    for (int x = 0; x < nx; ++x)
-      for (int y = 0; y <= end; ++y)
-        for (int z = 0; z < nz; ++z)
+    for (int x = lo(0); x <= hi(0); ++x)
+      for (int y = lo(1); y <= hi(1); ++y)
+        for (int z = lo(2); z <= hi(2); ++z)
           clearVoxel(x, y, z);
   }
 
@@ -918,7 +897,7 @@ void GridMap::rollMapIfNeeded()
     md_.cache_voxel_.pop();
 
   std::cout << "[GridMap] Rolling map shifted by "
-            << shift(0) << ", " << shift(1)
+            << shift.transpose()
             << " voxels. New origin: "
             << mp_.map_origin_.transpose() << std::endl;
 }
@@ -1043,6 +1022,8 @@ void GridMap::cloudCallback(const sensor_msgs::msg::PointCloud2::ConstPtr &img)
   // 添加虚拟天花板控制飞行高度
   if (mp_.virtual_ceil_height_ > -0.5) {
     int ceil_id = floor((mp_.virtual_ceil_height_ - mp_.map_origin_(2)) * mp_.resolution_inv_) - 1;
+    // The map rolls in z, so the absolute ceiling can lie outside the current map.
+    if (ceil_id >= 0 && ceil_id < mp_.map_voxel_num_(2))
     for (int x = md_.local_bound_min_(0); x <= md_.local_bound_max_(0); ++x)
       for (int y = md_.local_bound_min_(1); y <= md_.local_bound_max_(1); ++y) {
         md_.occupancy_buffer_inflate_[toAddress(x, y, ceil_id)] = 1;

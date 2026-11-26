@@ -87,6 +87,8 @@ RUN apt-get update && apt-get install -y \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
+
 # Download YOLO and CUDA correctly
 # Remove any CPU-only torch that may already be present
 RUN pip3 uninstall -y --break-system-packages torch torchvision || true

@@ -250,15 +250,14 @@ namespace ego_planner
 
     if (use_goal_z_)
     {
-      // Use the requested height (e.g. from DSP), kept inside the band ego-planner can fly in.
-      // If that voxel is occupied, checkCollisionCallback() still searches vertically for a free one.
+      // Use the requested height (e.g. from DSP). The map rolls in z with the drone, so ego-planner
+      // has no fixed ground or ceiling: the goal is only kept inside the current map (the next
+      // goal from DSP lies inside again once the map has followed the drone). If that voxel is
+      // occupied, checkCollisionCallback() still searches vertically for a free one.
       Eigen::Vector3d map_origin, map_size;
       map->getRegion(map_origin, map_size);
-      const double min_z = map->getGroundHeight() + goal_min_height_above_ground_;
-      const double top_z = map->getVirtualCeilHeight() > map->getGroundHeight()
-                               ? map->getVirtualCeilHeight()
-                               : map_origin.z() + map_size.z();
-      const double max_z = std::max(min_z, top_z - map->getResolution());
+      const double min_z = map_origin.z() + map->getResolution();
+      const double max_z = std::max(min_z, map_origin.z() + map_size.z() - map->getResolution());
       goal_z = std::clamp(msg->pose.position.z, min_z, max_z);
       if (goal_z != msg->pose.position.z)
       {
@@ -809,10 +808,11 @@ odom_vel_ = q * vel_body;
     {
       goal_height_adjustment_attempted_ = true;
       const double resolution = map->getResolution();
-      const double min_goal_z = map->getGroundHeight() + goal_min_height_above_ground_;
-      const double max_goal_z = map->getVirtualCeilHeight() > map->getGroundHeight()
-                                    ? map->getVirtualCeilHeight()
-                                    : map->getGroundHeight() + goal_height_above_ground_ + goal_vertical_search_range_;
+      // Search inside the current (z-rolling) map only; no fixed ground or ceiling.
+      Eigen::Vector3d map_origin, map_size;
+      map->getRegion(map_origin, map_size);
+      const double min_goal_z = map_origin.z() + resolution;
+      const double max_goal_z = map_origin.z() + map_size.z() - resolution;
       const int search_steps = static_cast<int>(std::ceil(goal_vertical_search_range_ / resolution));
       bool found_free_goal = false;
 

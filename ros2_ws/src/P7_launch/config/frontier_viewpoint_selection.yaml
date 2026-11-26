@@ -4,7 +4,10 @@ frontier_viewpoint_selection:
     odometry_topic: /Odometry_base_link
     dsp_cost_service: /dsp/path_cost
     planning_failure_service: /dsp/planning_failure
+    start_service: /frontier_viewpoint_selection/start
     finish_service: /frontier_viewpoint_selection/finish
+    # Stay in WAITING (no batches, no goals) until start_service is called.
+    wait_for_start_trigger: true
     dsp_set_goal_service: /dsp/set_goal
 
     # DSP's set_goal service (dsp_interfaces/srv/SetGoal) is called with a new goal

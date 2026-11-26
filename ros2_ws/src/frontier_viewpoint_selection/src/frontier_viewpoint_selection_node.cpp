@@ -40,6 +40,7 @@ FrontierViewpointSelection::FrontierViewpointSelection() : rclcpp::Node("frontie
     odom_topic_ = declare_parameter<std::string>("odometry_topic", "/Odometry");
     cost_service_ = declare_parameter<std::string>("dsp_cost_service", "/dsp/path_cost");
     planning_failure_service_name_ = declare_parameter<std::string>("planning_failure_service", "/dsp/planning_failure");
+    start_service_name_ = declare_parameter<std::string>("start_service", "/frontier_viewpoint_selection/start");
     finish_service_name_ = declare_parameter<std::string>("finish_service", "/frontier_viewpoint_selection/finish");
     command_service_ = declare_parameter<std::string>("dsp_set_goal_service", "/dsp/set_goal");
     batch_request_topic_ = declare_parameter<std::string>("batch_request_topic", "/frontier_navigation/batch_request");
@@ -82,6 +83,8 @@ FrontierViewpointSelection::FrontierViewpointSelection() : rclcpp::Node("frontie
     lookahead_size_ = declare_parameter<int>("pairwise_cost_candidates", 4);
     min_cost_coverage_ = declare_parameter<int>("minimum_cost_coverage", 3);
     diagnostics_ = declare_parameter<bool>("enable_diagnostics", true);
+    wait_for_start_ = declare_parameter<bool>("wait_for_start_trigger", true);
+    state_ = wait_for_start_ ? State::WAITING : State::COMPUTE;
 
     if (shortlist_size_ <= 0 || shortlist_size_ > 12 || lookahead_size_ < 0 || min_cost_coverage_ <= 0) {
         throw std::invalid_argument("max_rank_candidates must be in [1, 12]; other counts must be positive; pairwise_cost_candidates may be zero.");
@@ -124,6 +127,8 @@ FrontierViewpointSelection::FrontierViewpointSelection() : rclcpp::Node("frontie
 
     planning_failure_service_ = create_service<Trigger>(planning_failure_service_name_, std::bind(&FrontierViewpointSelection::planningFailureCb, this, std::placeholders::_1, std::placeholders::_2));
 
+    start_service_ = create_service<Trigger>(start_service_name_, std::bind(&FrontierViewpointSelection::startCb, this, std::placeholders::_1, std::placeholders::_2));
+
     finish_service_ = create_service<Trigger>(finish_service_name_, std::bind(&FrontierViewpointSelection::finishCb, this, std::placeholders::_1, std::placeholders::_2));
 
     command_client_ = create_client<SetGoal>(command_service_);
@@ -132,7 +137,10 @@ FrontierViewpointSelection::FrontierViewpointSelection() : rclcpp::Node("frontie
     timer_ = create_wall_timer(std::chrono::milliseconds(200), std::bind(&FrontierViewpointSelection::tick, this));
     registerTop();
     heartbeat_timer_ = create_wall_timer(std::chrono::seconds(3), std::bind(&FrontierViewpointSelection::heartbeatCb, this));
-    RCLCPP_INFO(get_logger(), "Viewpoint selector started: DSP pairwise route optimization, Gaussian mean=%s weight=%.2f, odometry arrival %.2f m, finish service %s, DSP set_goal service %s (retry %.2f s)", gaussian_mean_mode_.c_str(), gaussian_weight_, arrival_tolerance_, finish_service_name_.c_str(), command_service_.c_str(), command_retry_);
+    RCLCPP_INFO(get_logger(), "Viewpoint selector started: DSP pairwise route optimization, Gaussian mean=%s weight=%.2f, odometry arrival %.2f m, start service %s, finish service %s, DSP set_goal service %s (retry %.2f s)", gaussian_mean_mode_.c_str(), gaussian_weight_, arrival_tolerance_, start_service_name_.c_str(), finish_service_name_.c_str(), command_service_.c_str(), command_retry_);
+    if (wait_for_start_) {
+        RCLCPP_INFO(get_logger(), "Waiting for start trigger: ros2 service call %s std_srvs/srv/Trigger", start_service_name_.c_str());
+    }
 }
 
 FrontierViewpointSelection::~FrontierViewpointSelection() {
@@ -152,7 +160,7 @@ void FrontierViewpointSelection::registerTop() {
         {"node_type", "exploration_viewpoint_selector"},
         {"topics_subscribed", viewpoints_topic_ + ", " + odom_topic_},
         {"topics_published", "~/state"},
-        {"services_provided", finish_service_name_ + ", " + planning_failure_service_name_},
+        {"services_provided", start_service_name_ + ", " + finish_service_name_ + ", " + planning_failure_service_name_},
         {"services_consumed", cost_service_ + ", " + command_service_}
     };
     ros2top_registered_ = ros2top::register_node("/" + std::string(get_name()), metadata);
@@ -217,6 +225,25 @@ void FrontierViewpointSelection::odomCb(nav_msgs::msg::Odometry::SharedPtr msg) 
     }
     odom_frame_ = msg->header.frame_id;
     have_odom_ = true;
+}
+
+void FrontierViewpointSelection::startCb(const std::shared_ptr<Trigger::Request> /*request*/, std::shared_ptr<Trigger::Response> response) {
+    if (state_ == State::FINISHED) {
+        response->success = false;
+        response->message = "Selector is FINISHED; restart the node to explore again.";
+        return;
+    }
+    if (state_ != State::WAITING) {
+        response->success = true;
+        response->message = "Exploration already running (state " + stateName() + ").";
+        return;
+    }
+    batch_not_before_ = Clock::time_point{};
+    state_ = State::COMPUTE;
+    publishStatus();
+    response->success = true;
+    response->message = "Exploration started.";
+    RCLCPP_INFO(get_logger(), "Start trigger received; exploration started.");
 }
 
 void FrontierViewpointSelection::finishCb(const std::shared_ptr<Trigger::Request> /*request*/, std::shared_ptr<Trigger::Response> response) {
@@ -893,6 +920,7 @@ void FrontierViewpointSelection::completeGoal() {
 
 std::string FrontierViewpointSelection::stateName() const {
     switch (state_) {
+        case State::WAITING: return "WAITING";
         case State::COMPUTE: return "COMPUTE";
         case State::SELECT_GOAL: return "SELECT_GOAL";
         case State::NAVIGATING: return "NAVIGATING";
@@ -905,7 +933,7 @@ std::string FrontierViewpointSelection::stateName() const {
 
 void FrontierViewpointSelection::processStateMachine() {
     const auto current = Clock::now();
-    if (state_ == State::FINISHED) {
+    if (state_ == State::FINISHED || state_ == State::WAITING) {
         return;
     }
     if (state_ == State::COMPUTE) {

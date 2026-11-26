@@ -9,6 +9,7 @@
 #include <octomap/OcTree.h>
 #include <octomap_msgs/msg/octomap.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 
 #include <chrono>
@@ -105,6 +106,17 @@ private:
     };
 
     void mapCb(octomap_msgs::msg::Octomap::SharedPtr message);
+    // Floor height map (P7_topdown_map floor_height_map_node, built from /octomap_full). This
+    // node plans on the camera-filtered OctoMap; both use the same 0.5 m grid in the same frame,
+    // and the floor is looked up by world (x, y), so the two maps need not match cell by cell.
+    void floorHeightCb(sensor_msgs::msg::PointCloud2::SharedPtr message);
+    bool heightBandEnabled() const { return !floor_height_topic_.empty(); }
+    // Floor [m] at (x, y): floor map value, else default_floor_height (take-off level).
+    double floorAt(double x, double y) const;
+    // Hard limits: position within [floor + min_height_above_ground, floor + max_height_above_ground].
+    bool inHeightBand(const Vector &position) const;
+    // Height above the preferred flight height, used by the altitude penalty.
+    double altitudeAboveReference(const Vector &position) const;
     void frontierCb(FrontierArray::SharedPtr message);
     void odomCb(nav_msgs::msg::Odometry::SharedPtr message);
     void publishCb();
@@ -166,6 +178,19 @@ private:
     rclcpp::Subscription<FrontierArray>::SharedPtr frontier_sub_;
     rclcpp::Subscription<octomap_msgs::msg::Octomap>::SharedPtr map_sub_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
+    rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr floor_sub_;
+    struct FloorMap {
+        double x0{0.0}, y0{0.0}, res{0.5};  // lower corner of cell (0, 0)
+        int nx{0}, ny{0};
+        std::vector<float> z;
+    };
+    // Replaced as a whole and read by the worker threads: use std::atomic_load / atomic_store.
+    std::shared_ptr<const FloorMap> floor_;
+    std::string floor_height_topic_;
+    double min_height_above_ground_{0.5};
+    double max_height_above_ground_{5.0};
+    double preferred_height_above_ground_{3.0};
+    double default_floor_height_{0.0};
     rclcpp::Publisher<frontier_viewpoint_optimizer::msg::OptimizedFrontierArray>::SharedPtr result_pub_;
     rclcpp::Publisher<visualization_msgs::msg::MarkerArray>::SharedPtr marker_pub_;
     rclcpp::TimerBase::SharedPtr publish_timer_;

@@ -3,6 +3,7 @@
 #include <geometry_msgs/msg/point.hpp>
 #include <octomap/AbstractOcTree.h>
 #include <octomap_msgs/conversions.h>
+#include <sensor_msgs/point_cloud2_iterator.hpp>
 #include <rclcpp/executors/multi_threaded_executor.hpp>
 #include <visualization_msgs/msg/marker.hpp>
 
@@ -154,6 +155,13 @@ FrontierViewpointOptimizer::FrontierViewpointOptimizer()
     altitude_reference_ = declare_parameter<double>("altitude_reference_z", 3.0);
     altitude_excess_ = declare_parameter<double>("altitude_excess_scale", 2.0);
     excessive_altitude_penalty_ = declare_parameter<double>("excessive_altitude_penalty_weight", 1.2);
+    // Terrain-following height limits from the floor height map. Empty topic: off, and the
+    // altitude penalty uses the absolute altitude_reference_z instead.
+    floor_height_topic_ = declare_parameter<std::string>("floor_height_topic", "");
+    min_height_above_ground_ = declare_parameter<double>("min_height_above_ground", 0.5);
+    max_height_above_ground_ = declare_parameter<double>("max_height_above_ground", 5.0);
+    preferred_height_above_ground_ = declare_parameter<double>("preferred_height_above_ground", 3.0);
+    default_floor_height_ = declare_parameter<double>("default_floor_height", 0.0);
     refinement_enabled_ = declare_parameter<bool>("enable_candidate_refining", true);
     refinement_iterations_ = declare_parameter<int>("refinement_iterations", 2);
     refinement_half_extent_ = declare_parameter<double>("refinement_uav_half_extent", 0.18);
@@ -190,6 +198,9 @@ FrontierViewpointOptimizer::FrontierViewpointOptimizer()
     require(refinement_half_extent_ >= 0.0 && refinement_margin_ >= 0.0, "Invalid refinement clearance");
     require(geometry_tolerance_ >= 0.0 && cached_visibility_min_fraction_ >= 0.0 && cached_visibility_min_fraction_ <= 1.0, "Invalid geometry tolerance / visibility threshold");
     require(marker_alpha_ >= 0.0 && marker_alpha_ <= 1.0 && marker_segments_ >= 8, "Invalid marker configuration");
+    require(min_height_above_ground_ < preferred_height_above_ground_ &&
+            preferred_height_above_ground_ < max_height_above_ground_,
+            "Need min_height_above_ground < preferred_height_above_ground < max_height_above_ground");
 
     const auto transient_qos = rclcpp::QoS(1).reliable().transient_local();
     frontier_sub_ = create_subscription<FrontierArray>(
@@ -204,6 +215,16 @@ FrontierViewpointOptimizer::FrontierViewpointOptimizer()
         odom_topic_, rclcpp::QoS(10),
         std::bind(&FrontierViewpointOptimizer::odomCb, this,
                   std::placeholders::_1));
+    if (heightBandEnabled()) {
+        floor_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
+            floor_height_topic_, transient_qos,
+            std::bind(&FrontierViewpointOptimizer::floorHeightCb, this,
+                      std::placeholders::_1));
+        RCLCPP_INFO(get_logger(),
+            "Viewpoints limited to %.2f..%.2f m above the floor (%s), preferred %.2f m",
+            min_height_above_ground_, max_height_above_ground_,
+            floor_height_topic_.c_str(), preferred_height_above_ground_);
+    }
     result_pub_ = create_publisher<msg::OptimizedFrontierArray>(
         result_topic_, transient_qos);
     marker_pub_ = create_publisher<visualization_msgs::msg::MarkerArray>(
@@ -394,6 +415,10 @@ void FrontierViewpointOptimizer::compactQueuesLocked() {
 bool FrontierViewpointOptimizer::endpointOccupied(const Map &map, const Candidate &candidate) const {
     if (!map || !candidate.valid()) {
         return false;
+    }
+    // Outside the height band (the floor map may have changed): as unusable as occupied.
+    if (!inHeightBand(candidate.position)) {
+        return true;
     }
     const auto *node = map->search(candidate.position.x(), candidate.position.y(), candidate.position.z());
     return node && map->isNodeOccupied(node);
@@ -612,6 +637,81 @@ void FrontierViewpointOptimizer::mapWorkerLoop() {
 }
 
 
+void FrontierViewpointOptimizer::floorHeightCb(sensor_msgs::msg::PointCloud2::SharedPtr message) {
+    if (message->width < 2 || message->height < 1) {
+        return;
+    }
+    auto floor = std::make_shared<FloorMap>();
+    floor->nx = static_cast<int>(message->width);
+    floor->ny = static_cast<int>(message->height);
+    floor->z.resize(static_cast<std::size_t>(floor->nx) * floor->ny);
+    sensor_msgs::PointCloud2ConstIterator<float> x(*message, "x"), y(*message, "y"), z(*message, "z");
+    double x_first = 0.0, y_first = 0.0, x_second = 0.0;
+    for (std::size_t i = 0; i < floor->z.size(); ++i, ++x, ++y, ++z) {
+        if (i == 0) {
+            x_first = *x;
+            y_first = *y;
+        } else if (i == 1) {
+            x_second = *x;
+        }
+        floor->z[i] = *z;
+    }
+    floor->res = x_second - x_first;
+    if (!(floor->res > 1.0e-6)) {
+        return;
+    }
+    floor->x0 = x_first - 0.5 * floor->res;
+    floor->y0 = y_first - 0.5 * floor->res;
+    const auto previous = std::atomic_load(&floor_);
+    const bool changed = !previous || previous->nx != floor->nx || previous->ny != floor->ny ||
+        std::abs(previous->x0 - floor->x0) > 1.0e-6 || std::abs(previous->y0 - floor->y0) > 1.0e-6 ||
+        previous->z != floor->z;
+    std::atomic_store(&floor_, std::shared_ptr<const FloorMap>(std::move(floor)));
+    if (!changed) {
+        return;
+    }
+    // The height band moved: recheck every cached viewpoint (out-of-band ones are re-solved).
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (const auto &pair : frontiers_) {
+            if (pair.second.result) {
+                enqueueValidationLocked(pair.first);
+            }
+        }
+    }
+    validation_cv_.notify_all();
+}
+
+double FrontierViewpointOptimizer::floorAt(double x, double y) const {
+    const auto floor = std::atomic_load(&floor_);
+    if (floor) {
+        const int ix = static_cast<int>(std::floor((x - floor->x0) / floor->res));
+        const int iy = static_cast<int>(std::floor((y - floor->y0) / floor->res));
+        if (ix >= 0 && iy >= 0 && ix < floor->nx && iy < floor->ny) {
+            const float z = floor->z[static_cast<std::size_t>(iy) * floor->nx + ix];
+            if (std::isfinite(z)) {
+                return z;
+            }
+        }
+    }
+    return default_floor_height_;
+}
+
+bool FrontierViewpointOptimizer::inHeightBand(const Vector &position) const {
+    if (!heightBandEnabled()) {
+        return true;
+    }
+    const double height = position.z() - floorAt(position.x(), position.y());
+    return height >= min_height_above_ground_ && height <= max_height_above_ground_;
+}
+
+double FrontierViewpointOptimizer::altitudeAboveReference(const Vector &position) const {
+    if (!heightBandEnabled()) {
+        return position.z() - altitude_reference_;
+    }
+    return position.z() - floorAt(position.x(), position.y()) - preferred_height_above_ground_;
+}
+
 void FrontierViewpointOptimizer::odomCb(nav_msgs::msg::Odometry::SharedPtr message) {
     const Vector pose = asVector(message->pose.pose.position);
     if (!pose.allFinite()) {
@@ -749,7 +849,7 @@ void FrontierViewpointOptimizer::frontierCb(FrontierArray::SharedPtr message) {
 
 bool FrontierViewpointOptimizer::candidateStillUseful(
     const Map &map, const Frontier &frontier, const Candidate &candidate) const {
-    if (!map || !candidate.valid()) {
+    if (!map || !candidate.valid() || !inHeightBand(candidate.position)) {
         return false;
     }
     const auto samples = sampleFrontier(frontier);
@@ -894,6 +994,12 @@ FrontierViewpointOptimizer::buildNavigation(
             }
             if ((keyCenter(map, next) - origin).squaredNorm() >
                 max_distance_squared || !cellFree(map, next)) {
+                continue;
+            }
+            // Paths stay inside the height band (as DSP's), except straight up/down in the
+            // robot's own column so a robot outside the band can still get into it.
+            if (!inHeightBand(keyCenter(map, next)) &&
+                (next.k[0] != navigation.origin.k[0] || next.k[1] != navigation.origin.k[1])) {
                 continue;
             }
             navigation.parent.emplace(next, current);
@@ -1047,6 +1153,7 @@ FrontierViewpointOptimizer::sampleCandidateKeys(
         }
         Key key;
         if (toKey(map, position, key) && cellFree(map, key) &&
+            inHeightBand(keyCenter(map, key)) &&
             unique.insert(key).second) {
             pool.push_back(key);
         }
@@ -1102,6 +1209,20 @@ FrontierViewpointOptimizer::sampleCandidateKeys(
     }
     altitudes.push_back(center.z());
     altitudes.push_back(robot.z());
+    if (heightBandEnabled()) {
+        // Keep the layers inside the height band (e.g. canopy frontiers are viewed from the band
+        // top) and always try the preferred height.
+        const double floor = floorAt(box_center.x(), box_center.y());
+        const double half = 0.5 * map->getResolution();
+        const double lo = floor + min_height_above_ground_ + half;
+        const double hi = floor + max_height_above_ground_ - half;
+        if (lo <= hi) {
+            for (double &z : altitudes) {
+                z = std::clamp(z, lo, hi);
+            }
+        }
+        altitudes.push_back(floor + preferred_height_above_ground_);
+    }
     std::sort(altitudes.begin(), altitudes.end());
     altitudes.erase(std::unique(altitudes.begin(), altitudes.end(),
         [](double a, double b) { return std::abs(a - b) < 0.24; }),
@@ -1283,7 +1404,7 @@ double FrontierViewpointOptimizer::preliminaryScore(
         return -1.0e30;
     }
     const double ratio = double(visible_in_fov) / samples.size();
-    const double altitude = position.z() - altitude_reference_;
+    const double altitude = altitudeAboveReference(position);
     const double penalty = altitude_weight_ * std::max(0.0, altitude) +
         excessive_altitude_penalty_ * std::pow(
             std::max(0.0, altitude - altitude_excess_), 2.0);
@@ -1345,7 +1466,7 @@ FrontierViewpointOptimizer::Candidate FrontierViewpointOptimizer::evaluate(
     if (result.area <= 0.0) {
         return result;
     }
-    const double altitude = position.z() - altitude_reference_;
+    const double altitude = altitudeAboveReference(position);
     const double penalty = altitude_weight_ * std::max(0.0, altitude) +
         excessive_altitude_penalty_ * std::pow(
             std::max(0.0, altitude - altitude_excess_), 2.0);
@@ -1483,7 +1604,7 @@ void FrontierViewpointOptimizer::refine(
             const Vector candidate_position = best.position +
                 radius * fraction * offset;
             if ((candidate_position - base_center).cwiseAbs().maxCoeff() >=
-                0.5 * map->getResolution()) {
+                0.5 * map->getResolution() || !inHeightBand(candidate_position)) {
                 continue;
             }
             if (!validRefinementMotion(

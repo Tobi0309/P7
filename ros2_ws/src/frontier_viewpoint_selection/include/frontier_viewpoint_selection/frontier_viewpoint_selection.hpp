@@ -48,9 +48,10 @@ private:
     using Trigger = std_srvs::srv::Trigger;
     using PairKey = std::array<int64_t, 6>;
 
+    // WAITING: idle until the start service is called (when wait_for_start_trigger is true).
     // COMPUTE: frontiers and viewpoints are being computed for the next decision.
     // Frontier work only happens in COMPUTE and SELECT_GOAL, never while NAVIGATING.
-    enum class State { COMPUTE, SELECT_GOAL, NAVIGATING, REPLAN, GOAL_REACHED, FINISHED };
+    enum class State { WAITING, COMPUTE, SELECT_GOAL, NAVIGATING, REPLAN, GOAL_REACHED, FINISHED };
 
     struct SavedView {
         View data;
@@ -82,6 +83,7 @@ private:
 
     void viewpointsCb(Array::SharedPtr msg);
     void odomCb(nav_msgs::msg::Odometry::SharedPtr msg);
+    void startCb(const std::shared_ptr<Trigger::Request> request, std::shared_ptr<Trigger::Response> response);
     void finishCb(const std::shared_ptr<Trigger::Request> request, std::shared_ptr<Trigger::Response> response);
     void planningFailureCb(const std::shared_ptr<Trigger::Request> request, std::shared_ptr<Trigger::Response> response);
     void tick();
@@ -130,6 +132,7 @@ private:
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
     rclcpp::Client<PathCost>::SharedPtr cost_client_;
     rclcpp::Service<Trigger>::SharedPtr planning_failure_service_;
+    rclcpp::Service<Trigger>::SharedPtr start_service_;
     rclcpp::Service<Trigger>::SharedPtr finish_service_;
     rclcpp::Client<SetGoal>::SharedPtr command_client_;  // DSP /dsp/set_goal
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr state_pub_;
@@ -153,7 +156,7 @@ private:
     bool have_anchor_{false};
     bool have_views_{false};
 
-    State state_{State::COMPUTE};
+    State state_{State::WAITING};
     bool batch_requested_{false};
     uint32_t batch_id_{0};
     Clock::time_point batch_started_{};
@@ -192,6 +195,7 @@ private:
     std::string odom_topic_;
     std::string cost_service_;
     std::string planning_failure_service_name_;
+    std::string start_service_name_;
     std::string finish_service_name_;
     std::string batch_request_topic_;
     std::string command_service_;
@@ -234,6 +238,7 @@ private:
     int lookahead_size_{4};
     int min_cost_coverage_{3};
     bool diagnostics_{true};
+    bool wait_for_start_{true};
 };
 
 }  // namespace frontier_viewpoint_selection

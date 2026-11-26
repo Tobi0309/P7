@@ -6,6 +6,9 @@
 #include <ros2top/ros2top.hpp>
 
 #include <limits>
+#include <stdexcept>
+
+#include "sensor_msgs/point_cloud2_iterator.hpp"
 
 
 namespace dsp
@@ -38,6 +41,21 @@ Dsp::Dsp() : Node("dsp")
     this->declare_parameter("optimal_voxel_height_cost", 10);
     // Number of path voxels ahead of the drone's closest path point to send as goal.
     this->declare_parameter("goal_voxels_ahead", 12);
+    // Floor height map (organized PointCloud2, P7_topdown_map floor_height_map_node). Empty: the
+    // floor comes from DSP's own height map only.
+    this->declare_parameter("floor_height_topic", "");
+    // Hard height limits [m above the floor]: voxels whose centre lies outside
+    // [floor + min, floor + max] are treated as occupied. The defaults disable them.
+    this->declare_parameter("min_height_above_ground", -1.0e9);
+    this->declare_parameter("max_height_above_ground", 1.0e9);
+    // Floor [m, odom frame] for columns without any floor estimate (take-off level).
+    this->declare_parameter("default_floor_height", 0.0);
+    min_height_above_ground_ = this->get_parameter("min_height_above_ground").as_double();
+    max_height_above_ground_ = this->get_parameter("max_height_above_ground").as_double();
+    default_floor_height_ = this->get_parameter("default_floor_height").as_double();
+    if (min_height_above_ground_ >= max_height_above_ground_) {
+        throw std::invalid_argument("min_height_above_ground must be below max_height_above_ground");
+    }
 
     spline_step_ = this->get_parameter("spline_step").as_double();
     dsp_unknown_ = this->get_parameter("DSP_UNKNOWN").as_int();
@@ -70,6 +88,19 @@ Dsp::Dsp() : Node("dsp")
         get_ocupancy_sub_ = this->create_subscription<nav_msgs::msg::OccupancyGrid>(this->get_parameter("map_topic").as_string(), 1,
             std::bind(&Dsp::occupancy_grid_callback, this, std::placeholders::_1));
         height_voxel = 1;
+    }
+
+    const std::string floor_topic = this->get_parameter("floor_height_topic").as_string();
+    if (!floor_topic.empty()) {
+        // The floor height map is published latched.
+        floor_height_sub_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(
+            floor_topic, rclcpp::QoS(1).reliable().transient_local(),
+            std::bind(&Dsp::floorHeightCallback, this, std::placeholders::_1));
+    }
+    if (heightLimitsEnabled()) {
+        RCLCPP_INFO(this->get_logger(), "Height limits: %.2f..%.2f m above the floor (floor map: %s).",
+            min_height_above_ground_, max_height_above_ground_,
+            floor_topic.empty() ? "own height map" : floor_topic.c_str());
     }
 
     set_goal_srv_ = this->create_service<dsp_interfaces::srv::SetGoal>("dsp/set_goal",
@@ -213,6 +244,9 @@ double Dsp::effectiveCost(int idx) const
 {
     const double raw = occupancy_map[idx];
     if (raw == DSP_OCCUPIED || padding_count_[idx] > 0) {
+        return DSP_OCCUPIED;
+    }
+    if (height_blocked_.size() == occupancy_map.size() && height_blocked_[idx] && !heightExempt(idx)) {
         return DSP_OCCUPIED;
     }
     if (raw >= dsp_unknown_) {
@@ -466,6 +500,23 @@ void Dsp::buildHeightMap() {
         }
     }
     floor_height_map.swap(smoothed_floor_height_map);
+
+    // Floor surface per column: the external floor height map where it has a value (it also
+    // fills columns DSP has not seen the floor in), else DSP's own, else default_floor_height.
+    floor_top_z_.assign(length_voxel * width_voxel, default_floor_height_);
+    for (int y = 0; y < width_voxel; y++) {
+        for (int x = 0; x < length_voxel; x++) {
+            const int column = x + y * length_voxel;
+            double z_top;
+            if (externalFloorAt(pmin(0) + (x + 0.5) * res_octomap, pmin(1) + (y + 0.5) * res_octomap, z_top)) {
+                floor_top_z_[column] = z_top;
+                const int voxel = static_cast<int>(std::lround((z_top - pmin(2)) / res_octomap)) - 1;
+                floor_height_map[column] = (voxel >= 0 && voxel < height_voxel) ? voxel : -1;
+            } else if (floor_height_map[column] >= 0) {
+                floor_top_z_[column] = pmin(2) + (floor_height_map[column] + 1) * res_octomap;
+            }
+        }
+    }
 }
 
 void Dsp::buildHeightCostMap() {
@@ -487,6 +538,158 @@ void Dsp::buildHeightCostMap() {
                 }
             }
         }
+    }
+
+    // Hard limits: voxel centres outside [floor + min, floor + max] are blocked.
+    if (!heightLimitsEnabled() || height_voxel <= 1 || floor_top_z_.size() != static_cast<size_t>(length_voxel * width_voxel)) {
+        height_blocked_.clear();
+        return;
+    }
+    height_blocked_.assign(occupancy_map.size(), 0);
+    for (int y = 0; y < width_voxel; y++) {
+        for (int x = 0; x < length_voxel; x++) {
+            const double floor = floor_top_z_[x + y * length_voxel];
+            for (int z = 0; z < height_voxel; z++) {
+                const double height = pmin(2) + (z + 0.5) * res_octomap - floor;
+                if (height < min_height_above_ground_ || height > max_height_above_ground_) {
+                    height_blocked_[voxelIndex(x, y, z)] = 1;
+                }
+            }
+        }
+    }
+}
+
+bool Dsp::outsideHeightBand(const Eigen::Vector3d &g) const
+{
+    if (height_blocked_.size() != occupancy_map.size()) {
+        return false;
+    }
+    const int x = static_cast<int>(std::floor(g(0)));
+    const int y = static_cast<int>(std::floor(g(1)));
+    const int z = static_cast<int>(std::floor(g(2)));
+    if (!inBounds(x, y, z)) {
+        return false;
+    }
+    const int idx = voxelIndex(x, y, z);
+    return height_blocked_[idx] && !heightExempt(idx);
+}
+
+bool Dsp::heightLimitsEnabled() const
+{
+    return min_height_above_ground_ > -1.0e8 || max_height_above_ground_ < 1.0e8;
+}
+
+bool Dsp::heightExempt(int idx) const
+{
+    if (exempt_column_ < 0) {
+        return false;
+    }
+    const int plane = length_voxel * width_voxel;
+    const int z = idx / plane;
+    return idx % plane == exempt_column_ && z >= exempt_z_lo_ && z <= exempt_z_hi_;
+}
+
+void Dsp::updateHeightExemption()
+{
+    if (!heightLimitsEnabled() || height_voxel <= 1 || !gdsl_ || height_blocked_.empty()) {
+        return;
+    }
+    int column = -1, z_lo = 0, z_hi = -1;
+    const Eigen::Vector3d g = posRes(start_pos);
+    const int x = static_cast<int>(std::floor(g(0)));
+    const int y = static_cast<int>(std::floor(g(1)));
+    const int z = static_cast<int>(std::floor(g(2)));
+    if (x >= 0 && x < length_voxel && y >= 0 && y < width_voxel) {
+        column = x + y * length_voxel;
+        const double floor = floor_top_z_[column];
+        // Allowed voxel range of this column, then extend it to the drone's own voxel.
+        const int band_lo = static_cast<int>(std::ceil((floor + min_height_above_ground_ - pmin(2)) / res_octomap - 0.5));
+        const int band_hi = static_cast<int>(std::floor((floor + max_height_above_ground_ - pmin(2)) / res_octomap - 0.5));
+        z_lo = std::max(0, std::min(z, band_lo));
+        z_hi = std::min(height_voxel - 1, std::max(z, band_hi));
+    }
+    if (column == exempt_column_ && z_lo == exempt_z_lo_ && z_hi == exempt_z_hi_) {
+        return;
+    }
+    const int old_column = exempt_column_;
+    exempt_column_ = column;
+    exempt_z_lo_ = z_lo;
+    exempt_z_hi_ = z_hi;
+    // Push the cost changes of the old and the new exempt column to the graph.
+    for (const int c : {old_column, column}) {
+        if (c < 0) {
+            continue;
+        }
+        const int cx = c % length_voxel;
+        const int cy = c / length_voxel;
+        for (int cz = 0; cz < height_voxel; cz++) {
+            const int idx = voxelIndex(cx, cy, cz);
+            const double cost = effectiveCost(idx);
+            if (cost != graph_cost_[idx]) {
+                gdsl_->SetCost(Eigen::Vector3d(cx + 0.5, cy + 0.5, cz + 0.5), cost);
+                graph_cost_[idx] = cost;
+            }
+        }
+    }
+}
+
+bool Dsp::externalFloorAt(double x, double y, double &z_top) const
+{
+    if (!external_floor_.valid) {
+        return false;
+    }
+    const int ix = static_cast<int>(std::floor((x - external_floor_.x0) / external_floor_.res));
+    const int iy = static_cast<int>(std::floor((y - external_floor_.y0) / external_floor_.res));
+    if (ix < 0 || iy < 0 || ix >= external_floor_.nx || iy >= external_floor_.ny) {
+        return false;
+    }
+    const float z = external_floor_.z[static_cast<size_t>(iy) * external_floor_.nx + ix];
+    if (!std::isfinite(z)) {
+        return false;
+    }
+    z_top = z;
+    return true;
+}
+
+void Dsp::floorHeightCallback(const sensor_msgs::msg::PointCloud2::SharedPtr msg)
+{
+    std::lock_guard<std::mutex> lock(planning_mutex_);
+    const std::string odom_frame = this->get_parameter("odom_frame_id").as_string();
+    if (msg->width < 2 || msg->height < 1 || msg->header.frame_id != odom_frame) {
+        RCLCPP_WARN_THROTTLE(this->get_logger(), *this->get_clock(), 10000,
+            "Ignoring floor height map (%ux%u, frame '%s', expected '%s')",
+            msg->width, msg->height, msg->header.frame_id.c_str(), odom_frame.c_str());
+        return;
+    }
+    ExternalFloor floor;
+    floor.nx = static_cast<int>(msg->width);
+    floor.ny = static_cast<int>(msg->height);
+    floor.z.resize(static_cast<size_t>(floor.nx) * floor.ny);
+    sensor_msgs::PointCloud2ConstIterator<float> px(*msg, "x"), py(*msg, "y"), pz(*msg, "z");
+    double x_first = 0.0, y_first = 0.0, x_second = 0.0;
+    for (size_t i = 0; i < floor.z.size(); ++i, ++px, ++py, ++pz) {
+        if (i == 0) {
+            x_first = *px;
+            y_first = *py;
+        } else if (i == 1) {
+            x_second = *px;
+        }
+        floor.z[i] = *pz;
+    }
+    floor.res = x_second - x_first;
+    if (!(floor.res > 1e-6)) {
+        return;
+    }
+    floor.x0 = x_first - 0.5 * floor.res;
+    floor.y0 = y_first - 0.5 * floor.res;
+    floor.valid = true;
+    external_floor_ = std::move(floor);
+
+    // Re-apply the floor (soft height cost and hard limits) to the current graph.
+    if (grid_built && gdsl_ && height_voxel > 1) {
+        buildHeightMap();
+        buildHeightCostMap();
+        syncGraphCosts();
     }
 }
 
@@ -531,6 +734,14 @@ void Dsp::request_cost(const std::shared_ptr<dsp_interfaces::srv::PathCost::Requ
             "path_cost requested before a map was received");
         return;
     }
+    {
+        // Cost queries start at the drone: keep its column's exemption current.
+        Eigen::Vector3d robot_pos;
+        if (lookupRobotPosition(robot_pos)) {
+            setStart(robot_pos);
+        }
+        updateHeightExemption();
+    }
 
     // Snap both ends to their voxel centres so DSL's floor() lands in the right cell.
     Eigen::Vector3d grid_start = posRes(Eigen::Vector3d(req->start.x, req->start.y, req->start.z));
@@ -549,6 +760,11 @@ void Dsp::request_cost(const std::shared_ptr<dsp_interfaces::srv::PathCost::Requ
     };
     if (!valid_grid_point(grid_start) || !valid_grid_point(grid_goal) ||
         grid_start == grid_goal) {
+        return;
+    }
+    // Ends outside the height band are unreachable (the search would still enter the cells).
+    // The drone's own column is exempt (updateHeightExemption), so queries from it still work.
+    if (outsideHeightBand(grid_start) || outsideHeightBand(grid_goal)) {
         return;
     }
 
@@ -697,6 +913,7 @@ bool Dsp::planPath(){
     if (lookupRobotPosition(robot_pos)) {
         setStart(robot_pos);
     }
+    updateHeightExemption();
 
     const Eigen::Vector3d grid_start = posRes(start_pos);
     const Eigen::Vector3d grid_goal = posRes(goal_pos);
@@ -716,6 +933,10 @@ bool Dsp::planPath(){
         return true;
     }
 
+    if (outsideHeightBand(grid_goal)) {
+        reportPlanningFailure("Goal is outside the height limits above the floor.");
+        return false;
+    }
     if(!setSG(start_pos, goal_pos)){
         return false;
     }

@@ -1,0 +1,31 @@
+topdown_map:
+  ros__parameters:
+    # Camera-filtered octomap (LiDAR points inside the camera image), see P7_launch mapping.launch.py.
+    octomap_topic: /octomap_binary_filtered
+    # The octomap is decoded at most this often (wall time); it is a full re-projection.
+    update_period_seconds: 2.0
+    # Floor = lowest occupied voxel with a known-free voxel above, median-smoothed over a
+    # height_kernel_size x height_kernel_size window (same method and default as DSP).
+    height_kernel_size: 3
+    # Occupied voxels this high above the floor are tree trunks [m]. Below: low vegetation,
+    # above: canopy.
+    tree_min_height: 1.0
+    tree_max_height: 4.0
+    # Smallest connected cluster of trunk cells published as a tree marker.
+    min_tree_cells: 1
+
+    # Camera coverage (~/coverage): seconds each (x, y) cell has been in camera view, from the
+    # LiDAR points inside the camera image (P7_mapping pointcloud_fov_filter).
+    coverage.enabled: true
+    coverage.cloud_topic: /cloud_registered_body_fov_filtered
+    coverage.world_frame: camera_init
+    # Accumulation cell size [m]; the GUI smooths it with a Gaussian.
+    coverage.resolution: 0.2
+    coverage.publish_period_seconds: 2.0
+    # Each scan adds its duration (cloud stamp difference) once per cell it hits; gaps longer
+    # than max_scan_gap count as nominal_scan.
+    coverage.nominal_scan_seconds: 0.1
+    coverage.max_scan_gap_seconds: 0.5
+    # Only count points in this world-z band [m] (default: all).
+    coverage.min_z: -1.0e9
+    coverage.max_z: 1.0e9

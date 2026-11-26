@@ -17,6 +17,7 @@ find_package(rclcpp REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(dsp_interfaces REQUIRED)
 find_package(eigen3_cmake_module REQUIRED)
@@ -43,6 +44,7 @@ ament_target_dependencies(dsp
     rclcpp 
     dsp_interfaces 
     visualization_msgs 
+    sensor_msgs
     std_srvs
     octomap 
     octomap_msgs 

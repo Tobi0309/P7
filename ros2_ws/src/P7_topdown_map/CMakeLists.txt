@@ -1,0 +1,37 @@
+cmake_minimum_required(VERSION 3.8)
+project(P7_topdown_map)
+
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
+
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(octomap REQUIRED)
+find_package(octomap_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
+find_package(tf2 REQUIRED)
+find_package(tf2_ros REQUIRED)
+
+add_executable(topdown_map_node src/topdown_map_node.cpp)
+target_compile_features(topdown_map_node PUBLIC cxx_std_17)
+target_include_directories(topdown_map_node PRIVATE ${OCTOMAP_INCLUDE_DIRS})
+target_link_libraries(topdown_map_node ${OCTOMAP_LIBRARIES})
+ament_target_dependencies(topdown_map_node rclcpp octomap_msgs nav_msgs sensor_msgs visualization_msgs std_srvs tf2 tf2_ros)
+
+add_executable(floor_height_map_node src/floor_height_map_node.cpp)
+target_compile_features(floor_height_map_node PUBLIC cxx_std_17)
+target_include_directories(floor_height_map_node PRIVATE ${OCTOMAP_INCLUDE_DIRS})
+target_link_libraries(floor_height_map_node ${OCTOMAP_LIBRARIES})
+ament_target_dependencies(floor_height_map_node rclcpp octomap_msgs sensor_msgs)
+
+install(TARGETS topdown_map_node floor_height_map_node DESTINATION lib/${PROJECT_NAME})
+install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
+
+ament_package()
